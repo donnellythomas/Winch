@@ -1,4 +1,6 @@
 import threading
+import RPi.GPIO as GPIO
+
 from time import sleep
 
 from context import Context
@@ -12,6 +14,9 @@ class Winch(Context):
     depth = 0
     conductivity = 0;
     temp = 0
+    pins = None
+    down_time = 0
+    up_time = 0
 
     error_message = ""
 
@@ -66,21 +71,25 @@ class Winch(Context):
         Winch out
         :return:
         """
-        sleep(.5)
-        self.depth += 1
-        self.report_position()
+        GPIO.output(24, GPIO.LOW)
+        GPIO.output(23, GPIO.HIGH)
+
+
 
     def up(self):
         """
         Winch in
         :return:
         """
-        if self.depth > 0:
-            sleep(.5)
-            self.depth -= 1
-            self.report_position()
-        else:
-            print("already on surface")
+        GPIO.output(23, GPIO.LOW)
+        GPIO.output(24, GPIO.HIGH)
+        
+    def stop(self):
+        GPIO.output(23, GPIO.LOW)
+        GPIO.output(24, GPIO.LOW)
+        
+
+
 
     def report_position(self):
         """

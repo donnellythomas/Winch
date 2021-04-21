@@ -1,4 +1,5 @@
 from abc import ABCMeta, abstractmethod
+import RPi.GPIO as GPIO
 
 
 class State(metaclass=ABCMeta):
@@ -43,14 +44,28 @@ class InitState(State):
         :param winch: Context
         :return:
         """
-        try:
-            winch.payout_rate = int(input("Payout rate: "))
-            winch.queue_command({"from": "INIT", "to": "STDBY"})
-            winch.execute_command_stack()
-        except:
-            print("Invalid input in INIT")
-            self.on_entry_behavior(winch)
+        #Initialize GPIO
 
+        GPIO.setmode(GPIO.BCM)
+
+        # Create a dictionary called pins to store the pin number, name, and pin state:
+        winch.pins = {
+           23 : {'name' : 'GPIO 23 (up)', 'state' : GPIO.LOW},
+           24 : {'name' : 'GPIO 24 (down)', 'state' : GPIO.LOW}
+           }
+
+        # Set each pin as an output and make it low:
+        for pin in winch.pins:
+           GPIO.setup(pin, GPIO.OUT)
+           GPIO.output(pin, GPIO.LOW)
+
+
+    
+        #winch.payout_rate = int(input("Payout rate: "))
+        winch.queue_command({"from": "INIT", "to": "STDBY"})
+        winch.execute_command_stack()
+        
+      
     def on_exit_behavior(self, winch):
         pass
 
@@ -105,17 +120,21 @@ class ManualWinchOutState(State):
         :param winch: Context
         :return:
         """
-        try:
-            while True:
-                cmd = (input("Manually enter distance (or STOP): "))
-                if cmd == "STOP":
-                    break
-                measurement = int(cmd)
-                for i in range(measurement):
-                    winch.down()
-        except:
-            print("Invalid input in MANIN")
-            self.on_entry_behavior(winch)
+        
+        while True:
+            cmd = (input("Start, STOP or EXIT: "))
+            if cmd == "START":
+                winch.down()
+            elif cmd == "STOP":
+                winch.stop()
+            elif cmd == "EXIT":
+                break
+            else:
+                print("Invalid input:",cmd)
+                winch.stop()
+        
+            
+   
 
     def on_exit_behavior(self, winch):
         pass
@@ -131,17 +150,20 @@ class ManualWinchInState(State):
         :param winch: Context
         :return:
         """
+       
         while True:
-            try:
-                cmd = (input("Manually enter distance (or STOP): "))
-                if cmd == "STOP":
-                    break
-                measurement = int(cmd)
-                for i in range(measurement):
-                    winch.up()
-            except:
-                print("Invalid input in MANIN")
-                self.on_entry_behavior(winch)
+            cmd = (input("Start, STOP or EXIT: "))
+            if cmd == "START":
+                winch.up()
+            elif cmd == "STOP":
+                winch.stop()
+            elif cmd == "EXIT":
+                break
+            else:
+                print("Invalid input:",cmd)
+                winch.stop()
+        
+            
 
     def on_exit_behavior(self, winch):
         pass
@@ -157,9 +179,8 @@ class DownCastState(State):
         :param winch:
         :return:
         """
-        while winch.depth < winch.target_depth:
-            winch.down()
-
+        winch.down(winch.down_time)
+        
     def on_exit_behavior(self, winch):
         pass
 
