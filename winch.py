@@ -14,14 +14,14 @@ from states import *
 
 class Winch(Context):
     payout_rate = 0
-    command_sequence = []
+    state_sequence = []
     target_depth = 0
     depth = 0
     conductivity = 0
     temp = 0
     pins = None
     error_message = ""
-    sock = None;
+    command = None;
 
     def __init__(self, context_name):
         Context.__init__(self, context_name)
@@ -57,16 +57,16 @@ class Winch(Context):
         :param command: Map<String,String>
         :return:
         """
-        self.command_sequence.append(command)
-        print("COMMAND QUEUE:", self.command_sequence)
+        self.state_sequence.append(command)
+        print("COMMAND QUEUE:", self.state_sequence)
 
-    def execute_command_stack(self):
+    def execute_state_stack(self):
         """
         Pop off and run the commands in the command stack on at a time
         :return:
         """
-        while self.command_sequence:
-            winch.do_transition(self.command_sequence.pop(0))
+        while self.state_sequence:
+            winch.do_transition(self.state_sequence.pop(0))
         winch.do_transition({"from": self.get_state().get_name(), "to": "STDBY"})
 
     def down(self):
@@ -75,8 +75,8 @@ class Winch(Context):
         :return:
         """
         print("Going down...")
-        # GPIO.output(24, GPIO.LOW)
-        # GPIO.output(23, GPIO.HIGH)
+        GPIO.output(24, GPIO.LOW)
+        GPIO.output(23, GPIO.HIGH)
 
     def up(self):
         """
@@ -84,13 +84,13 @@ class Winch(Context):
         :return:
         """
         print("Going up...")
-        # GPIO.output(23, GPIO.LOW)
-        # GPIO.output(24, GPIO.HIGH)
+        GPIO.output(23, GPIO.LOW)
+        GPIO.output(24, GPIO.HIGH)
 
     def stop(self):
         print("Stopping...")
-        # GPIO.output(23, GPIO.LOW)
-        # GPIO.output(24, GPIO.LOW)
+        GPIO.output(23, GPIO.LOW)
+        GPIO.output(24, GPIO.LOW)
 
     def report_position(self):
         """
@@ -108,15 +108,29 @@ class Winch(Context):
         self.error_message = message
         self.do_transition({"from": self.get_state().get_name(), "to": "ERROR"})
 
-    def receive_command(self):
-        try:
-            command, addr = self.sock.recvfrom(1024)  # buffer size is 1024 bytes
-            command = command.decode();
-        except socket.timeout:
-            return None
-        print("received command: %s" % command)
-        return command
+    def receive_commands(self):
+        print("Starting command thread")
+        UDP_IP = "127.0.0.1"
+        UDP_PORT = 5008
+        sock = socket.socket(socket.AF_INET,  # Internet
+                                   socket.SOCK_DGRAM)  # UDP
+        sock.bind((UDP_IP, UDP_PORT))
+        sock.settimeout(1)
+        
+        while True:
+            try:
+                command, addr = sock.recvfrom(1024)  # buffer size is 1024 bytes
+                self.command = command.decode();
+                print("received command: %s" % self.command)
 
+            except socket.timeout:
+                self.command = None
+                print("Command timeout")
+            
+    def has_slack(self):
+        slack_sensor = GPIO.input(6)
+        return slack_sensor == GPIO.HIGH
+    
 
 if __name__ == "__main__":
     winch = Winch("my_winch")

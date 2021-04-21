@@ -2,7 +2,7 @@ from abc import ABCMeta, abstractmethod
 import socket
 from time import sleep
 from time import time
-
+import threading
 try:
     import RPi.GPIO as GPIO
 except:
@@ -53,32 +53,32 @@ class InitState(State):
         """
         # Initialize GPIO
 
-        # GPIO.setmode(GPIO.BCM)
+        GPIO.setmode(GPIO.BCM)
         #
         # # Create a dictionary called pins to store the pin number, name, and pin state:
-        # winch.pins = {
-        #    23 : {'name' : 'GPIO 23 (up)', 'state' : GPIO.LOW},
-        #    24 : {'name' : 'GPIO 24 (down)', 'state' : GPIO.LOW}
-        #    }
+        winch.pins = {
+            23 : {'name' : 'GPIO 23 (up)', 'state' : GPIO.LOW},
+            24 : {'name' : 'GPIO 24 (down)', 'state' : GPIO.LOW}
+            
+           }
+            
+        ## Set each pin as an output and make it low:
+        for pin in winch.pins:
+            GPIO.setup(pin, GPIO.OUT)
+            GPIO.output(pin, GPIO.LOW)
+            
+        GPIO.setup(6, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+        GPIO.add_event_detect(6, GPIO.BOTH)
         #
-        # # Set each pin as an output and make it low:
-        # for pin in winch.pins:
-        #    GPIO.setup(pin, GPIO.OUT)
-        #    GPIO.output(pin, GPIO.LOW)
         #
         #
-        #
-        # #winch.payout_rate = int(input("Payout rate: "))
+         #winch.payout_rate = int(input("Payout rate: "))
 
-        UDP_IP = "127.0.0.1"
-        UDP_PORT = 5005
-
-        winch.sock = socket.socket(socket.AF_INET,  # Internet
-                                   socket.SOCK_DGRAM)  # UDP
-        winch.sock.bind((UDP_IP, UDP_PORT))
-        winch.sock.settimeout(0.01)
+        command_thread = threading.Thread(target=winch.receive_commands)
+        command_thread.start()
+        
         winch.queue_command({"from": "INIT", "to": "STDBY"})
-        winch.execute_command_stack()
+        winch.execute_state_stack()
 
     def on_exit_behavior(self, winch):
         pass
@@ -95,11 +95,11 @@ class StdbyState(State):
         :param winch: Context
         :return:
         """
-        command = None
-        while command is None:
-            command = winch.receive_command()
-        winch.queue_command({"from": "STDBY", "to": command})
-        winch.execute_command_stack()
+        
+        while winch.command is None:
+            pass
+        winch.queue_command({"from": "STDBY", "to": winch.command})
+        winch.execute_state_stack()
 
     def on_exit_behavior(self, winch):
         pass
@@ -120,7 +120,7 @@ class CastState(State):
         winch.queue_command({"from": "CAST", "to": "DOWNCAST"})
         winch.queue_command({"from": "DOWNCAST", "to": "UPCAST"})
         winch.queue_command({"from": "UPCAST", "to": "READDATA"})
-        winch.execute_command_stack()
+        winch.execute_state_stack()
 
     def on_exit_behavior(self, winch):
         pass
@@ -136,18 +136,12 @@ class ManualWinchOutState(State):
         :param winch: Context
         :return:
         """
-
-        while True:
-            cmd = (input("Start, STOP or EXIT: "))
-            if cmd == "START":
-                winch.down()
-            elif cmd == "STOP":
+            
+        while winch.command == "MANOUT":
+            if winch.has_slack(): #slack
                 winch.stop()
-            elif cmd == "EXIT":
-                break
-            else:
-                print("Invalid input:", cmd)
-                winch.stop()
+            else: winch.down()
+        winch.stop()
 
     def on_exit_behavior(self, winch):
         pass
@@ -163,13 +157,10 @@ class ManualWinchInState(State):
         :param winch: Context
         :return:
         """
-
-        winch.up()
-        while winch.receive_command() == "MANIN":
-            i = i+1
-            pass
-        winch.stop()
-
+        while winch.comamnd == "MANIN":
+            if winch.has_slack(): #slack
+               winch.stop()
+            else: winch.down()
     def on_exit_behavior(self, winch):
         pass
 
@@ -239,11 +230,11 @@ class ErrorState(State):
         :param winch: Context
         :return:
         """
-        winch.command_sequence = []
+        winch.state_sequence = []
         print("ERROR:", winch.error_message)
         winch.error_message = ""
         winch.queue_command({"from": "ERROR", "to": "STDBY"})
-        winch.execute_command_stack()
+        winch.execute_state_stack()
 
     def on_exit_behavior(self, winch):
         pass
