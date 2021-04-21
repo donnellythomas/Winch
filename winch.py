@@ -21,7 +21,12 @@ class Winch(Context):
     temp = 0
     pins = None
     error_message = ""
-    command = None;
+    command = None
+    slack_pin = None
+    dock_pin = None
+    up_pin = None
+    down_pin = None
+    
 
     def __init__(self, context_name):
         Context.__init__(self, context_name)
@@ -49,6 +54,7 @@ class Winch(Context):
 
     def power_off(self):
         """Power off winch"""
+        # cleanup GPIO
         print("Calling Power Off!")
 
     def queue_command(self, command):
@@ -128,8 +134,13 @@ class Winch(Context):
                 print("Command timeout")
             
     def has_slack(self):
-        slack_sensor = GPIO.input(6)
-        return slack_sensor == GPIO.HIGH
+        return GPIO.input(self.slack_pin) == GPIO.HIGH
+    
+    def is_docked(self):
+        return GPIO.input(self.dock_pin) == GPIO.LOW
+    
+    def is_out_of_line(self):
+        return GPIO.input(self.dock_pin) == GPIO.LOW
     
 
 if __name__ == "__main__":

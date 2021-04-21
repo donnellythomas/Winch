@@ -56,19 +56,23 @@ class InitState(State):
         GPIO.setmode(GPIO.BCM)
         #
         # # Create a dictionary called pins to store the pin number, name, and pin state:
-        winch.pins = {
-            23 : {'name' : 'GPIO 23 (up)', 'state' : GPIO.LOW},
-            24 : {'name' : 'GPIO 24 (down)', 'state' : GPIO.LOW}
-            
-           }
-            
+        winch.slack_pin = 6
+        winch.dock_pin = 17
+        winch.up_pin = 23
+        winch.down_pin = 24
+        
         ## Set each pin as an output and make it low:
-        for pin in winch.pins:
-            GPIO.setup(pin, GPIO.OUT)
-            GPIO.output(pin, GPIO.LOW)
+        GPIO.setup(winch.up_pin, GPIO.OUT)
+        GPIO.output(winch.up_pin, GPIO.LOW)
+        GPIO.setup(winch.down_pin, GPIO.OUT)
+        GPIO.output(winch.down_pin, GPIO.LOW)
             
-        GPIO.setup(6, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-        GPIO.add_event_detect(6, GPIO.BOTH)
+        # Slack sensor
+        GPIO.setup(winch.slack_pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+        GPIO.add_event_detect(winch.slack_pin, GPIO.BOTH)
+        
+        GPIO.setup(winch.dock_pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+        GPIO.add_event_detect(winch.dock_pin, GPIO.BOTH)
         #
         #
         #
@@ -138,7 +142,7 @@ class ManualWinchOutState(State):
         """
             
         while winch.command == "MANOUT":
-            if winch.has_slack(): #slack
+            if winch.has_slack() or winch.is_out_of_line(): #slack
                 winch.stop()
             else: winch.down()
         winch.stop()
@@ -157,10 +161,12 @@ class ManualWinchInState(State):
         :param winch: Context
         :return:
         """
-        while winch.comamnd == "MANIN":
-            if winch.has_slack(): #slack
+        while winch.command == "MANIN":
+            if winch.has_slack() or winch.is_docked(): #slack
                winch.stop()
-            else: winch.down()
+            else: winch.up()
+        winch.stop()
+        
     def on_exit_behavior(self, winch):
         pass
 
@@ -211,8 +217,8 @@ class ReadDataState(State):
         :param winch: Context
         :return:
         """
-        if winch.depth != 0:
-            winch.error("Winch not on surface, cannot read data")
+        if winch.is_docked():
+            winch.error("Winch not docked, cannot read data")
 
         print("C:", winch.conductivity, "T:", winch.temp, "D:", winch.depth)
 
