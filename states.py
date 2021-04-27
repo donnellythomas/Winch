@@ -71,11 +71,19 @@ class InitState(State):
 
             GPIO.setup(winch.dock_pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
             GPIO.add_event_detect(winch.dock_pin, GPIO.BOTH)
-        #
-        #
-        #
-        # winch.payout_rate = int(input("Payout rate: "))
-
+        
+        with file(winch.cal_file) as f:
+            while True:
+                try:
+                    rot,m = f.readline().split()
+                    winch.cal_data['rotations'].append(rot)
+                    winch.cal_data['meters'].append(m)
+                except:
+                    print("Finished reading data.")
+                    print("Read %d values." % len(winch.cal_data["rotations"]))
+                    break
+        
+        
         command_thread = threading.Thread(target=winch.receive_commands)
         command_thread.start()
 
@@ -128,10 +136,7 @@ class ManualWinchOutState(State):
         print("Going down...")
 
         while winch.command == "MANOUT":
-            if winch.has_slack() or winch.is_out_of_line():  # slack
-                winch.stop()
-            else:
-                winch.down()
+            winch.down()
         print("Stopping...")
         winch.stop()
 
@@ -145,10 +150,7 @@ class ManualWinchInState(State):
         """
         print("Going up...")
         while winch.command == "MANIN":
-            if winch.has_slack() or winch.is_docked():  # slack
-                winch.stop()
-            else:
-                winch.up()
+            winch.up()
         print("Stopping...")
         winch.stop()
 
@@ -223,5 +225,6 @@ class StopState(State):
         :param winch: Context
         :return:
         """
+        winch.motors_off()
         winch.state_sequence = []
         winch.command = None

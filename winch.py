@@ -27,9 +27,11 @@ class Winch(Context):
     up_pin = None
     down_pin = None
 
-    def __init__(self, context_name):
+    def __init__(self, context_name, cal_file = 'cal_data.txt'):
         Context.__init__(self, context_name)
         # add all the states to the winch
+        self.cal_file = cal_file
+        self.cal_data = {"rotations":[], "meters":[]}
         self.add_state(InitState("INIT"))
         self.add_state(StdbyState("STDBY"))
         self.add_state(CastState("CAST"))
@@ -80,8 +82,11 @@ class Winch(Context):
         :return:
         """
         if not self.sim:
-            GPIO.output(24, GPIO.LOW)
-            GPIO.output(23, GPIO.HIGH)
+            if not (winch.has_slack() or winch.is_out_of_line()):  # slack
+                GPIO.output(24, GPIO.LOW)
+                GPIO.output(23, GPIO.HIGH)
+            else: self.motors_off()
+
         else:
             winch.depth += 1
             sleep(1)
@@ -92,16 +97,20 @@ class Winch(Context):
         :return:
         """
         if not self.sim:
-            GPIO.output(23, GPIO.LOW)
-            GPIO.output(24, GPIO.HIGH)
+            if not (winch.has_slack() or winch.is_docked()):
+                GPIO.output(23, GPIO.LOW)
+                GPIO.output(24, GPIO.HIGH)
+            else: self.motors_off()
         else:
             winch.depth -= 1
             sleep(1)
 
-    def stop(self):
+    def motors_off(self):
         if not self.sim:
             GPIO.output(23, GPIO.LOW)
             GPIO.output(24, GPIO.LOW)
+            
+    def stop(self):
         self.do_transition({"from": self.get_state().get_name(), "to": "STOP"})
 
 
@@ -152,6 +161,7 @@ class Winch(Context):
     def is_docked(self):
         if not winch.sim:
             docked = GPIO.input(self.dock_pin) == GPIO.LOW
+            if docked: winch.stop()
         else:
             docked = False
         # print("Is docked:", docked)
@@ -160,6 +170,8 @@ class Winch(Context):
     def is_out_of_line(self):
         if not winch.sim:
             out_of_line = GPIO.input(self.dock_pin) == GPIO.LOW
+            if out_of_line: winch.stop()
+
         else:
             out_of_line = False
         # print("Is out_of_line:", out_of_line)
