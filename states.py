@@ -2,6 +2,7 @@ import socket
 from time import sleep
 from time import time
 import threading
+
 try:
     import RPi.GPIO as GPIO
 except:
@@ -73,19 +74,13 @@ class InitState(State):
         #
         #
         #
-         #winch.payout_rate = int(input("Payout rate: "))
+        # winch.payout_rate = int(input("Payout rate: "))
 
         command_thread = threading.Thread(target=winch.receive_commands)
         command_thread.start()
-        
+
         winch.queue_command({"from": "INIT", "to": "STDBY"})
         winch.execute_state_stack()
-
-    def on_exit_behavior(self, winch):
-        pass
-
-    def __init__(self, name):
-        State.__init__(self, name)
 
 
 class StdbyState(State):
@@ -96,17 +91,16 @@ class StdbyState(State):
         :param winch: Context
         :return:
         """
-        
+
         while winch.command is None:
             pass
+
+        if len(winch.command.split()) == 2:
+            winch.target_depth = int(winch.command.split()[1])
+            winch.command = winch.command.split()[0]
+
         winch.queue_command({"from": "STDBY", "to": winch.command})
         winch.execute_state_stack()
-
-    def on_exit_behavior(self, winch):
-        pass
-
-    def __init__(self, name):
-        State.__init__(self, name)
 
 
 class CastState(State):
@@ -117,17 +111,11 @@ class CastState(State):
         :param winch: Context
         :return:
         """
-        winch.target_depth = int(input("Enter depth: "))
+        print("Casting to %d..." % winch.target_depth)
         winch.queue_command({"from": "CAST", "to": "DOWNCAST"})
         winch.queue_command({"from": "DOWNCAST", "to": "UPCAST"})
         winch.queue_command({"from": "UPCAST", "to": "READDATA"})
         winch.execute_state_stack()
-
-    def on_exit_behavior(self, winch):
-        pass
-
-    def __init__(self, name):
-        State.__init__(self, name)
 
 
 class ManualWinchOutState(State):
@@ -137,18 +125,15 @@ class ManualWinchOutState(State):
         :param winch: Context
         :return:
         """
-            
+        print("Going down...")
+
         while winch.command == "MANOUT":
-            if winch.has_slack() or winch.is_out_of_line(): #slack
+            if winch.has_slack() or winch.is_out_of_line():  # slack
                 winch.stop()
-            else: winch.down()
+            else:
+                winch.down()
+        print("Stopping...")
         winch.stop()
-
-    def on_exit_behavior(self, winch):
-        pass
-
-    def __init__(self, name):
-        State.__init__(self, name)
 
 
 class ManualWinchInState(State):
@@ -158,17 +143,14 @@ class ManualWinchInState(State):
         :param winch: Context
         :return:
         """
+        print("Going up...")
         while winch.command == "MANIN":
-            if winch.has_slack() or winch.is_docked(): #slack
-               winch.stop()
-            else: winch.up()
+            if winch.has_slack() or winch.is_docked():  # slack
+                winch.stop()
+            else:
+                winch.up()
+        print("Stopping...")
         winch.stop()
-        
-    def on_exit_behavior(self, winch):
-        pass
-
-    def __init__(self, name):
-        State.__init__(self, name)
 
 
 class DownCastState(State):
@@ -178,16 +160,15 @@ class DownCastState(State):
         :param winch:
         :return:
         """
-        winch.down()
-        while winch.receive_command() == "MANOUT":
-            pass
+        print("Going down to %d..." % winch.target_depth)
+        while winch.depth < winch.target_depth:
+            if winch.command == "STOP":
+                break
+            winch.down()
+            print("Depth: %d, Target: %d" % (winch.depth, winch.target_depth))
+
+        print("Stopping...")
         winch.stop()
-
-    def on_exit_behavior(self, winch):
-        pass
-
-    def __init__(self, name):
-        State.__init__(self, name)
 
 
 class UpCastState(State):
@@ -197,14 +178,14 @@ class UpCastState(State):
         :param winch: Context
         :return:
         """
+        print("Going up to 0...")
         while winch.depth > 0:
+            if winch.command == "STOP":
+                break
             winch.up()
-
-    def on_exit_behavior(self, winch):
-        pass
-
-    def __init__(self, name):
-        State.__init__(self, name)
+            print("Depth: %d, Target: %d" % (winch.depth, winch.target_depth))
+        print("Stopping...")
+        winch.stop()
 
 
 class ReadDataState(State):
@@ -216,14 +197,8 @@ class ReadDataState(State):
         """
         if winch.is_docked():
             winch.error("Winch not docked, cannot read data")
-
         print("C:", winch.conductivity, "T:", winch.temp, "D:", winch.depth)
-
-    def on_exit_behavior(self, winch):
-        pass
-
-    def __init__(self, name):
-        State.__init__(self, name)
+        sleep(0.)
 
 
 class ErrorState(State):
@@ -239,14 +214,8 @@ class ErrorState(State):
         winch.queue_command({"from": "ERROR", "to": "STDBY"})
         winch.execute_state_stack()
 
-    def on_exit_behavior(self, winch):
-        pass
 
-    def __init__(self, name):
-        State.__init__(self, name)
-
-
-class HelpState(State):
+class StopState(State):
 
     def on_entry_behavior(self, winch):
         """
@@ -254,10 +223,5 @@ class HelpState(State):
         :param winch: Context
         :return:
         """
-        winch.print_states()
-
-    def on_exit_behavior(self, winch):
-        pass
-
-    def __init__(self, name):
-        State.__init__(self, name)
+        winch.state_sequence = []
+        winch.command = None
