@@ -1,7 +1,5 @@
 from abc import ABCMeta, abstractmethod
 
-from singleton import singleton
-
 
 class State(metaclass=ABCMeta):
     """State base class"""
@@ -24,14 +22,16 @@ class State(metaclass=ABCMeta):
         pass
 
 
-@singleton
 class InitState(State):
     def on_entry_behavior(self, winch):
         # set default parameters
-        print("inside state")
-        winch.payout_rate = int(input("Payout rate: "))
-        winch.queue_command({"from": "INIT", "to": "STDBY"})
-        winch.execute_command_stack()
+        try:
+            winch.payout_rate = int(input("Payout rate: "))
+            winch.queue_command({"from": "INIT", "to": "STDBY"})
+            winch.execute_command_stack()
+        except:
+            print("Invalid input in INIT")
+            self.on_entry_behavior(winch)
 
     def on_exit_behavior(self, winch):
         pass
@@ -40,7 +40,6 @@ class InitState(State):
         State.__init__(self, name)
 
 
-@singleton
 class StdbyState(State):
     def on_entry_behavior(self, winch):
         command = input("Enter Command (HELP for help): ")
@@ -54,7 +53,6 @@ class StdbyState(State):
         State.__init__(self, name)
 
 
-@singleton
 class CastState(State):
 
     def on_entry_behavior(self, winch):
@@ -71,16 +69,19 @@ class CastState(State):
         State.__init__(self, name)
 
 
-@singleton
 class ManualWinchOutState(State):
     def on_entry_behavior(self, winch):
-        while True:
-            cmd = (input("Manually enter distance (or STOP): "))
-            if cmd == "STOP":
-                break
-            measurement = int(cmd)
-            for i in range(measurement):
-                winch.down()
+        try:
+            while True:
+                cmd = (input("Manually enter distance (or STOP): "))
+                if cmd == "STOP":
+                    break
+                measurement = int(cmd)
+                for i in range(measurement):
+                    winch.down()
+        except:
+            print("Invalid input in MANIN")
+            self.on_entry_behavior(winch)
 
     def on_exit_behavior(self, winch):
         pass
@@ -89,16 +90,19 @@ class ManualWinchOutState(State):
         State.__init__(self, name)
 
 
-@singleton
 class ManualWinchInState(State):
     def on_entry_behavior(self, winch):
         while True:
-            cmd = (input("Manually enter distance (or STOP): "))
-            if cmd == "STOP":
-                break
-            measurement = int(cmd)
-            for i in range(measurement):
-                winch.up()
+            try:
+                cmd = (input("Manually enter distance (or STOP): "))
+                if cmd == "STOP":
+                    break
+                measurement = int(cmd)
+                for i in range(measurement):
+                    winch.up()
+            except:
+                print("Invalid input in MANIN")
+                self.on_entry_behavior(winch)
 
     def on_exit_behavior(self, winch):
         pass
@@ -107,12 +111,9 @@ class ManualWinchInState(State):
         State.__init__(self, name)
 
 
-@singleton
 class ReportPositionState(State):
     def on_entry_behavior(self, winch):
-       pass
-
-
+        pass
 
     def on_exit_behavior(self, winch):
         pass
@@ -121,10 +122,9 @@ class ReportPositionState(State):
         State.__init__(self, name)
 
 
-@singleton
 class DownCastState(State):
     def on_entry_behavior(self, winch):
-        while winch.current_depth < winch.target_depth:
+        while winch.depth < winch.target_depth:
             winch.down()
 
     def on_exit_behavior(self, winch):
@@ -134,10 +134,9 @@ class DownCastState(State):
         State.__init__(self, name)
 
 
-@singleton
 class UpCastState(State):
     def on_entry_behavior(self, winch):
-        while winch.current_depth > 0:
+        while winch.depth > 0:
             winch.up()
 
     def on_exit_behavior(self, winch):
@@ -147,13 +146,13 @@ class UpCastState(State):
         State.__init__(self, name)
 
 
-@singleton
 class ReadDataState(State):
     def on_entry_behavior(self, winch):
-        if winch.current_depth != 0:
-            winch.error_message = "Winch not on surface, cannot read data"
-            winch.do_transition({"from": "READDATA", "to":"ERROR"})
-        print("C: X, T:, D:", winch.current_depth)
+        if winch.depth != 0:
+            winch.error("Winch not on surface, cannot read data")
+
+        print("C:", winch.conductivity, "T:", winch.temp, "D:", winch.depth)
+
     def on_exit_behavior(self, winch):
         pass
 
@@ -161,13 +160,12 @@ class ReadDataState(State):
         State.__init__(self, name)
 
 
-@singleton
 class ErrorState(State):
     def on_entry_behavior(self, winch):
         winch.command_sequence = []
-        print("ERROR:",winch.error_message)
+        print("ERROR:", winch.error_message)
         winch.error_message = ""
-        winch.queue_command({"from":"ERROR","to":"STDBY"})
+        winch.queue_command({"from": "ERROR", "to": "STDBY"})
         winch.execute_command_stack()
 
     def on_exit_behavior(self, winch):
@@ -177,7 +175,6 @@ class ErrorState(State):
         State.__init__(self, name)
 
 
-@singleton
 class HelpState(State):
     def on_entry_behavior(self, winch):
         winch.print_states()
