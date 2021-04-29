@@ -11,20 +11,38 @@ class State(metaclass=ABCMeta):
         return self.__name
 
     def get_name(self):
+        """
+        Get the name of the current state
+        :return: String
+        """
         return self.__name
 
     @abstractmethod
     def on_entry_behavior(self, winch):
+        """
+        Entry behavior of the state
+        :param winch: Context
+        :return:
+        """
         pass
 
     @abstractmethod
     def on_exit_behavior(self, winch):
+        """
+        Exits behavior of the state
+        :param winch: Context
+        :return:
+        """
         pass
 
 
 class InitState(State):
     def on_entry_behavior(self, winch):
-        # set default parameters
+        """
+        Set the default parameters of the winch
+        :param winch: Context
+        :return:
+        """
         try:
             winch.payout_rate = int(input("Payout rate: "))
             winch.queue_command({"from": "INIT", "to": "STDBY"})
@@ -41,7 +59,13 @@ class InitState(State):
 
 
 class StdbyState(State):
+
     def on_entry_behavior(self, winch):
+        """
+        Standby waiting for commands
+        :param winch: Context
+        :return:
+        """
         command = input("Enter Command (HELP for help): ")
         winch.queue_command({"from": "STDBY", "to": command})
         winch.execute_command_stack()
@@ -56,6 +80,11 @@ class StdbyState(State):
 class CastState(State):
 
     def on_entry_behavior(self, winch):
+        """
+        Automatically downcast and upcast to a specific depth
+        :param winch: Context
+        :return:
+        """
         winch.target_depth = int(input("Enter depth: "))
         winch.queue_command({"from": "CAST", "to": "DOWNCAST"})
         winch.queue_command({"from": "DOWNCAST", "to": "UPCAST"})
@@ -71,6 +100,11 @@ class CastState(State):
 
 class ManualWinchOutState(State):
     def on_entry_behavior(self, winch):
+        """
+        Manually winch out n meters
+        :param winch: Context
+        :return:
+        """
         try:
             while True:
                 cmd = (input("Manually enter distance (or STOP): "))
@@ -92,6 +126,11 @@ class ManualWinchOutState(State):
 
 class ManualWinchInState(State):
     def on_entry_behavior(self, winch):
+        """
+        Manually winch in n meters
+        :param winch: Context
+        :return:
+        """
         while True:
             try:
                 cmd = (input("Manually enter distance (or STOP): "))
@@ -111,19 +150,13 @@ class ManualWinchInState(State):
         State.__init__(self, name)
 
 
-class ReportPositionState(State):
-    def on_entry_behavior(self, winch):
-        pass
-
-    def on_exit_behavior(self, winch):
-        pass
-
-    def __init__(self, name):
-        State.__init__(self, name)
-
-
 class DownCastState(State):
     def on_entry_behavior(self, winch):
+        """
+        Downcast while less than target
+        :param winch:
+        :return:
+        """
         while winch.depth < winch.target_depth:
             winch.down()
 
@@ -136,6 +169,11 @@ class DownCastState(State):
 
 class UpCastState(State):
     def on_entry_behavior(self, winch):
+        """
+        Upcast while greater than target
+        :param winch: Context
+        :return:
+        """
         while winch.depth > 0:
             winch.up()
 
@@ -148,6 +186,11 @@ class UpCastState(State):
 
 class ReadDataState(State):
     def on_entry_behavior(self, winch):
+        """
+        Read CTD info from winch
+        :param winch: Context
+        :return:
+        """
         if winch.depth != 0:
             winch.error("Winch not on surface, cannot read data")
 
@@ -162,6 +205,11 @@ class ReadDataState(State):
 
 class ErrorState(State):
     def on_entry_behavior(self, winch):
+        """
+        Handle errors that occur
+        :param winch: Context
+        :return:
+        """
         winch.command_sequence = []
         print("ERROR:", winch.error_message)
         winch.error_message = ""
@@ -176,7 +224,13 @@ class ErrorState(State):
 
 
 class HelpState(State):
+
     def on_entry_behavior(self, winch):
+        """
+        Print the available state commands
+        :param winch: Context
+        :return:
+        """
         winch.print_states()
 
     def on_exit_behavior(self, winch):
