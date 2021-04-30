@@ -187,7 +187,7 @@ class Winch(Context):
         print("Starting command thread...")
 
         # TODO: pull into config file
-        UDP_IP = "127.0.0.1"
+        UDP_IP = ""
         UDP_PORT = 5008
 
         # UDP socket setup
