@@ -57,20 +57,13 @@ class Context:
         :return:
         """
         current = self.__currentState.get_name()
-        if msg["from"] == current:
-            if msg["to"] in self.__states:
-                print("Transition from {} to {}".format(msg["from"], msg["to"]))
-                self.exit_behavior(self.__states[msg["from"]])
-                self.set_state(msg["to"])
-                self.entry_behavior(self.__states[msg["to"]])
-            else:
-                print("Error: Invalid transition from {} to {}".format(msg["from"], msg["to"]))
-                self.entry_behavior(self.__states[current])
-
+        if msg in self.__states:
+            print("Transition to".format(msg))
+            self.set_state(msg)
+            self.entry_behavior(self.__states[msg])
         else:
-            print(
-                "Error: Current State is {}, received transition from {} to {}".format(current, msg["from"], msg["to"]))
-            # self.entry_behavior(self.__states[current])
+            print("Error: Invalid transition to {}".format(msg))
+            self.entry_behavior(self.__states[current])
 
     def entry_behavior(self, to_state):
         """
@@ -80,10 +73,3 @@ class Context:
         if isinstance(to_state, State):
             to_state.on_entry_behavior(self)
 
-    def exit_behavior(self, from_state):
-        """
-        :param from_state: State - State being exited
-        :return:
-        """
-        if isinstance(from_state, State):
-            from_state.on_exit_behavior(self)

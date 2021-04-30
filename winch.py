@@ -19,14 +19,14 @@ class Winch(Context):
     depth = 0
     conductivity = 0
     temp = 0
-    pins = None
-    error_message = ""
     command = None
     slack_pin = None
     dock_pin = None
     up_pin = None
+    out_of_line_pin = None
     down_pin = None
-    stopped = True
+    direction = "";
+    stopped = False
 
     def __init__(self, context_name, cal_file='cal_data.txt'):
         Context.__init__(self, context_name)
@@ -75,19 +75,18 @@ class Winch(Context):
         """
         while self.state_sequence:
             winch.do_transition(self.state_sequence.pop(0))
-        winch.do_transition({"from": self.get_state().get_name(), "to": "STDBY"})
 
     def down(self):
         """
         Winch out
         :return:
         """
+        direction = "down"
+        print("Going down...")
+
         if not self.sim:
-            if not (winch.has_slack() or winch.is_out_of_line()):  # slack
-                GPIO.output(24, GPIO.LOW)
-                GPIO.output(23, GPIO.HIGH)
-            else:
-                self.motors_off()
+            GPIO.output(24, GPIO.LOW)
+            GPIO.output(23, GPIO.HIGH)
 
         else:
             winch.depth += 1
@@ -98,23 +97,36 @@ class Winch(Context):
         Winch in
         :return:
         """
+        direction="up"
+        print("Going up...")
         if not self.sim:
-            if not (winch.has_slack() or winch.is_docked()):
-                GPIO.output(23, GPIO.LOW)
-                GPIO.output(24, GPIO.HIGH)
-            else:
-                self.motors_off()
+            GPIO.output(23, GPIO.LOW)
+            GPIO.output(24, GPIO.HIGH)
+
         else:
             winch.depth -= 1
             sleep(1)
 
     def motors_off(self):
+        print("Motors off")
         if not self.sim:
             GPIO.output(23, GPIO.LOW)
             GPIO.output(24, GPIO.LOW)
-
+            
+    def slack_callback(self, channel):
+        if GPIO.input(channel) == GPIO.HIGH:
+            self.stopped = True
+            self.motors_off()
+        else:
+            self.stopped = False
+            if self.direction == "up":
+                self.up()
+            elif self.direction == "down":
+                self.down()
+        
     def stop(self):
-        self.do_transition({"from": self.get_state().get_name(), "to": "STOP"})
+        self.direction = ""
+        self.do_transition("STOP")
 
     def report_position(self):
         """
@@ -130,7 +142,7 @@ class Winch(Context):
         :return:
         """
         self.error_message = message
-        self.do_transition({"from": self.get_state().get_name(), "to": "ERROR"})
+        self.do_transition("ERROR")
 
     def receive_commands(self):
         print("Starting command thread")
@@ -139,47 +151,50 @@ class Winch(Context):
         sock = socket.socket(socket.AF_INET,  # Internet
                              socket.SOCK_DGRAM)  # UDP
         sock.bind((UDP_IP, UDP_PORT))
-        sock.settimeout(.4)
+        sock.settimeout(.1)
 
         while True:
             try:
+                if self.is_docked() or self.is_out_of_line():
+                    raise Exception
                 command, addr = sock.recvfrom(1024)  # buffer size is 1024 bytes
                 self.command = command.decode()
                 if self.command == "STOP":
-                    winch.stop()
+                    self.stop()
                 # print("received command: %s" % self.command)
 
-            except socket.timeout:
+            except:
                 self.command = None
                 # print("Command timeout")
 
-    def has_slack(self):
-        if not winch.sim:
-            slack = GPIO.input(self.slack_pin) == GPIO.HIGH
-        else:
-            slack = False
-        # print("Has Slack:", slack)
-        return slack
+    def docked_callback(self, channel):
+        if GPIO.input(channel) == GPIO.LOW:
+            print("Docked")
+            self.stop()
+        
 
+    def out_of_line_callback(self, channel):
+        if GPIO.input(channel) == GPIO.LOW:
+            print("Out of line")
+            self.stop()
+    
     def is_docked(self):
-        if not winch.sim:
-            docked = GPIO.input(self.dock_pin) == GPIO.LOW
-            if docked: winch.stop()
-        else:
-            docked = False
-        # print("Is docked:", docked)
-        return docked
-
+        if GPIO.input(self.dock_pin) == GPIO.LOW:
+            print("Out of line")
+            self.stop()
+            
     def is_out_of_line(self):
-        if not winch.sim:
-            out_of_line = GPIO.input(self.dock_pin) == GPIO.LOW
-            if out_of_line: winch.stop()
-
+        if GPIO.input(self.out_of_line_pin) == GPIO.LOW:
+            print("Out of line")
+            self.stop()
+            
+    def depth_callback(self, channel):
+        if self.direction == "up":
+            depth -=1
+        elif self.direction == "down":
+            depth +=1
         else:
-            out_of_line = False
-        # print("Is out_of_line:", out_of_line)
-        return out_of_line
-
+            print("ERROR: Winch moving without known direction")
 
 if __name__ == "__main__":
     winch = Winch("my_winch")
