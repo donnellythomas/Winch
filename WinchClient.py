@@ -1,6 +1,6 @@
 import socket
 import threading
-import Tkinter as tk
+import tkinter as tk
 from time import sleep
 
 # IP and port for UDP current values are what I was using for testing
@@ -19,7 +19,8 @@ master.title("CTD Winch Interface")
 # Command that will be sent over UDP
 current_command = ""
 
-
+#soak depth 1.1 meters
+#soak time 1 minute
 def set_command(command):
     """
     Change the current command
@@ -48,15 +49,15 @@ def send_command():
 
 
 # Buttons for each command
-tk.Button(master, text='MANIN', command=lambda *args: set_command("MANIN")).pack()
-tk.Button(master, text='MANOUT', command=lambda *args: set_command("MANOUT")).pack()
-tk.Button(master, text='STOP', command=lambda *args: set_command("STOP")).pack()
+tk.Button(master, text='Manual Out', command=lambda *args: set_command("MANIN")).pack()
+tk.Button(master, text='Manual In', command=lambda *args: set_command("MANOUT")).pack()
+tk.Button(master, text='Stop', command=lambda *args: set_command("STOP")).pack()
 # Label and input for
-tk.Label(master, text="CAST TO").pack()
+tk.Label(master, text="Cast To").pack()
 entry = tk.Entry(master)
 entry.pack()
-tk.Button(master, text='CAST', command=lambda *args: set_command("CAST " + entry.get())).pack()
-tk.Button(master, text='READDATA', command=lambda *args: set_command("READDATA")).pack()
+tk.Button(master, text='Cast', command=lambda *args: set_command("CAST " + entry.get())).pack()
+tk.Button(master, text='Read Data', command=lambda *args: set_command("READDATA")).pack()
 t = threading.Thread(target=send_command)
 t.start()
 master.mainloop()
