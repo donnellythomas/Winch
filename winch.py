@@ -9,7 +9,7 @@ from time import sleep
 
 from context import Context
 from states import *
-
+from timer import Timer
 
 class Winch(Context):
     sim = None  # for running when not on raspberry pi
@@ -49,10 +49,16 @@ class Winch(Context):
     is_docked = False
     is_out_of_line = False
     is_stopped = False
+    has_error = False
 
     slack_sensor_on = True
     dock_sensor_on = True
     line_sensor_on = True
+    
+    slack_timer = Timer()
+    rotation_timer = Timer()
+    
+    
 
     def __init__(self, context_name, cal_file='cal_data.txt'):
         Context.__init__(self, context_name)
@@ -139,13 +145,7 @@ class Winch(Context):
             GPIO.output(23, GPIO.LOW)
             GPIO.output(24, GPIO.LOW)
 
-    def slack_callback(self, channel):
-        if GPIO.input(channel) == GPIO.HIGH:
-            self.has_slack = True
-            self.motors_off()
-        elif self.has_slack:
-            #            print("slack released")
-            self.has_slack = False
+   
 
     def stop(self):
         self.direction = ""
@@ -166,6 +166,14 @@ class Winch(Context):
         """
         self.error_message = message
         self.do_transition("ERROR")
+        
+    def error_monitor(self):
+        while True:
+            if self.slack_timer.check_time()>5:
+                self.error("Winch has been slack for too long")
+            if self.rotation_timer.check_time() > 3:
+                self.error("Drum is not rotating")
+            sleep(1)
 
     def receive_commands(self):
         print("Starting command thread")
@@ -202,13 +210,27 @@ class Winch(Context):
                 if self.command == "LINEON":
                     self.line_sensor_on = True
                     self.command = None
+                if self.command == "CLEARERROR":
+                    self.has_error = False
+                    self.command = None
 
                 # print("received command: %s" % self.command)
 
             except:
                 self.command = None
                 # print("Command timeout")
-
+                
+    def slack_callback(self, channel):
+        if GPIO.input(channel) == GPIO.HIGH:
+            self.slack_timer.reset()
+            self.has_slack = True
+            self.motors_off()
+        elif self.has_slack:
+            self.slack_timer.stop()
+            #            print("slack released")
+            self.has_slack = False
+        
+            
     def docked_callback(self, channel):
         if GPIO.input(channel) == GPIO.LOW:
             print("Docked")

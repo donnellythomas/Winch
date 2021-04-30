@@ -1,6 +1,6 @@
 import socket
 import threading
-import Tkinter as tk
+import tkinter as tk
 from time import sleep
 
 # IP and port for UDP current values are what I was using for testing
@@ -123,6 +123,8 @@ tk.Label(master, text="seconds").grid(row=5, column=2)
 tk.Button(master, text='Cast', command=lambda *args: set_command(
     "CAST " + cast_depth.get() + " " + soak_depth.get() + " " + soak_time.get())).grid(row=6, column=1)
 tk.Button(master, text='Read Data', command=lambda *args: set_command("READDATA")).grid(row=7, column=0)
+tk.Button(master, text='Clear Error', command=lambda *args: set_command("CLEARERROR")).grid(row=7, column=3)
+
 t = threading.Thread(target=send_command)
 t.start()
 master.mainloop()

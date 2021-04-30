@@ -58,11 +58,11 @@ class Context:
         """
         current = self.__currentState.get_name()
         if msg in self.__states:
-            print("Transition to".format(msg))
+            # print("Transition to ".format(msg))
             self.set_state(msg)
             self.entry_behavior(self.__states[msg])
         else:
-            print("Error: Invalid transition to {}".format(msg))
+            print("Error: Invalid State: {}".format(msg))
             self.entry_behavior(self.__states[current])
 
     def entry_behavior(self, to_state):

@@ -76,6 +76,7 @@ class InitState(State):
             # If line has slack initiall set has_slack to true;
             if GPIO.input(winch.slack_pin) == GPIO.HIGH:
                 winch.has_slack = True
+                winch.slack_timer.start()
             if GPIO.input(winch.dock_pin) == GPIO.LOW:
                 winch.is_docked = True
             if GPIO.input(winch.out_of_line_pin) == GPIO.LOW:
@@ -98,6 +99,9 @@ class InitState(State):
 
         command_thread = threading.Thread(target=winch.receive_commands)
         command_thread.start()
+        
+        error_monitor_thread = threading.Thread(target=winch.error_monitor)
+        error_monitor_thread.start()
 
         winch.queue_command("STDBY")
         winch.execute_state_stack()
@@ -178,7 +182,7 @@ class ManualWinchOutState(State):
         print("has slack: " + str(winch.has_slack))
         print("is out of line: " + str(winch.is_out_of_line))
 
-        if not (winch.has_slack or winch.slack_sensor_on):
+        if not winch.has_slack or not winch.slack_sensor_on:
             if not winch.line_sensor_on or (not winch.is_out_of_line and winch.depth < 417):  # 417 is 50 meters
                 print("winching down")
                 winch.down()
@@ -193,7 +197,7 @@ class ManualWinchInState(State):
         :param winch: Context
         :return:
         """
-        if not (winch.has_slack or winch.slack_sensor_on):
+        if not winch.has_slack or not winch.slack_sensor_on:
             if not winch.dock_sensor_on or (not winch.is_docked and winch.depth > 0):
                 winch.up()
             else:
@@ -263,11 +267,15 @@ class ErrorState(State):
         :param winch: Context
         :return:
         """
+        winch.motors_off()
+        winch.has_error = True
         winch.state_sequence = []
-        print("ERROR:", winch.error_message)
+        print("ERROR:" + winch.error_message)
         winch.error_message = ""
-        winch.queue_command("STDBY")
-        winch.execute_state_stack()
+        while winch.has_error:
+            print("Waiting for error to be cleared")
+            sleep(1)
+            pass
 
 
 class StopState(State):
