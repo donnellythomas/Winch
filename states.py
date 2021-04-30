@@ -114,7 +114,7 @@ class StdbyState(State):
         :return:
         """
         while True:
-            if winch.slack_timer.check_time()>5:
+            if winch.slack_timer.check_time()>20:
                 winch.error("Winch has been slack for too long")
             if winch.motors_on and winch.rotation_timer.check_time() > 3:
                 winch.error("Drum is not rotating")

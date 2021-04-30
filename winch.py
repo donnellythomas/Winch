@@ -113,11 +113,9 @@ class Winch(Context):
         Winch out
         :return:
         """
-        if self.direction != "down":            
-            self.direction = "down"
-            self.motors_on = True
-            self.rotation_timer.reset()
-        #    print("Going down...")
+        self.direction = "down"
+        self.motors_on = True
+    #    print("Going down...")
 
         if not self.sim:
             GPIO.output(24, GPIO.LOW)
@@ -132,11 +130,10 @@ class Winch(Context):
         Winch in
         :return:
         """
-        if self.direction != "up":
-            self.direction = "up"
-            self.motors_on = True
-            self.rotation_timer.reset()
-        #         print("Going up...")
+       
+        self.direction = "up"
+        self.motors_on = True
+    #         print("Going up...")
         if not self.sim:
             GPIO.output(23, GPIO.LOW)
             GPIO.output(24, GPIO.HIGH)
@@ -254,9 +251,9 @@ class Winch(Context):
         #if(self.rotation_timer.check_time()
         elapsed_time = self.rotation_timer.check_time()
         self.rotation_timer.reset()
-        #if( elapsed_time > 0 and elapsed_time < 0.5 ):
-        #    self.rotation_timer.stop()
-        #    self.error("Drum rotating too fast")
+        if( elapsed_time > 0 and elapsed_time < 0.5 ):
+            self.rotation_timer.stop()
+            self.error("Drum rotating too fast")
         if self.direction == "up":
             self.depth -= 1
         elif self.direction == "down":
