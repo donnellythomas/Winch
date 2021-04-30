@@ -131,8 +131,8 @@ class Winch(Context):
         self.direction = "up"
         if not self.sim:
             # Activate motor
-            GPIO.output(self.down_pin, GPIO.LOW)
-            GPIO.output(self.up_pin, GPIO.HIGH)
+            GPIO.output(self.down_pin, GPIO.HIGH)
+            GPIO.output(self.up_pin, GPIO.LOW)
         else:
             # Simulate winch ascending
             winch.depth -= 1
