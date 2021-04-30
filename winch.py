@@ -50,6 +50,7 @@ class Winch(Context):
     is_out_of_line = False
     is_stopped = False
     has_error = False
+    motors_on = False
 
     slack_sensor_on = True
     dock_sensor_on = True
@@ -112,7 +113,10 @@ class Winch(Context):
         Winch out
         :return:
         """
-        self.direction = "down"
+        if self.direction != "down":            
+            self.direction = "down"
+            self.motors_on = True
+            self.rotation_timer.reset()
         #    print("Going down...")
 
         if not self.sim:
@@ -128,7 +132,10 @@ class Winch(Context):
         Winch in
         :return:
         """
-        self.direction = "up"
+        if self.direction != "up":
+            self.direction = "up"
+            self.motors_on = True
+            self.rotation_timer.reset()
         #         print("Going up...")
         if not self.sim:
             GPIO.output(23, GPIO.LOW)
@@ -140,6 +147,8 @@ class Winch(Context):
 
     def motors_off(self):
         print("Motors off")
+        self.rotation_timer.stop()
+        self.motors_on = False
         if not self.sim:
             GPIO.output(23, GPIO.LOW)
             GPIO.output(24, GPIO.LOW)
@@ -148,7 +157,7 @@ class Winch(Context):
 
     def stop(self):
         self.direction = ""
-        self.do_transition("STOP")
+        self.state_sequence.insert(0,"STOP")
 
     def report_position(self):
         """
@@ -164,15 +173,9 @@ class Winch(Context):
         :return:
         """
         self.error_message = message
-        self.do_transition("ERROR")
+        self.state_sequence.insert(0,"ERROR")
         
-    def error_monitor(self):
-        while True:
-            if self.slack_timer.check_time()>5:
-                self.error("Winch has been slack for too long")
-            if self.rotation_timer.check_time() > 3:
-                self.error("Drum is not rotating")
-            sleep(1)
+    
 
     def receive_commands(self):
         print("Starting command thread")
@@ -248,6 +251,12 @@ class Winch(Context):
             self.is_out_of_line = False
 
     def depth_callback(self, channel):
+        #if(self.rotation_timer.check_time()
+        elapsed_time = self.rotation_timer.check_time()
+        self.rotation_timer.reset()
+        #if( elapsed_time > 0 and elapsed_time < 0.5 ):
+        #    self.rotation_timer.stop()
+        #    self.error("Drum rotating too fast")
         if self.direction == "up":
             self.depth -= 1
         elif self.direction == "down":

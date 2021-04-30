@@ -100,8 +100,6 @@ class InitState(State):
         command_thread = threading.Thread(target=winch.receive_commands)
         command_thread.start()
 
-        error_monitor_thread = threading.Thread(target=winch.error_monitor)
-        error_monitor_thread.start()
 
         winch.queue_command("STDBY")
         winch.execute_state_stack()
@@ -116,18 +114,23 @@ class StdbyState(State):
         :return:
         """
         while True:
-            sleep(.2)  # let the last command expire
+            if winch.slack_timer.check_time()>5:
+                winch.error("Winch has been slack for too long")
+            if winch.motors_on and winch.rotation_timer.check_time() > 3:
+                winch.error("Drum is not rotating")
+            
             if not winch.state_sequence:  # if command sequence is empty:
-                print("Entered Standby...")
+#                 print("Entered Standby...")
+                command = winch.command
                 winch.set_state("STDBY")
-                winch.is_stopped = False
                 # If there are no commands hold until there is one
-                if winch.command is not None:
+                if command is not None:
+                    print(command)
                     try:
-                        if len(winch.command.split()) == 4:
-                            meters = float(winch.command.split()[1])
-                            soak_depth = float(winch.command.split()[2])
-                            soak_time = float(winch.command.split()[3])
+                        if len(command.split()) == 4:
+                            meters = float(command.split()[1])
+                            soak_depth = float(command.split()[2])
+                            soak_time = float(command.split()[3])
                             if meters < 0 or meters > 50 or soak_depth > 50:
                                 raise Exception
 
@@ -141,17 +144,17 @@ class StdbyState(State):
                             else:
                                 winch.soak_time = soak_time
 
-                            winch.command = winch.command.split()[0]
+                            command = command.split()[0]
                             winch.target_depth = np.interp(meters, winch.cal_data["meters"], winch.cal_data["rotations"])
 
-                        winch.queue_command(winch.command)
-                        winch.execute_state_stack()
+                        winch.queue_command(command)
                     except Exception as e:
                         traceback.print_exc()
                         print(e)
                         print("Command not valid")
             else:
                 winch.do_transition(winch.state_sequence[0])
+            sleep(.1)
 
 
 class CastState(State):
@@ -168,9 +171,7 @@ class CastState(State):
         winch.queue_command("UPCAST")
         winch.queue_command("READDATA")
         winch.queue_command("STOP")
-
-        winch.execute_state_stack()
-
+        winch.state_sequence.pop(0)
 
 class ManualWinchOutState(State):
     def on_entry_behavior(self, winch):
@@ -179,13 +180,12 @@ class ManualWinchOutState(State):
         :param winch: Context
         :return:
         """
-        print("Entered MANOUT")
-        print("has slack: " + str(winch.has_slack))
-        print("is out of line: " + str(winch.is_out_of_line))
+        #print("Entered MANOUT")
+        #print("has slack: " + str(winch.has_slack))
+        #print("is out of line: " + str(winch.is_out_of_line))
 
         if not winch.has_slack or not winch.slack_sensor_on:
             if not winch.line_sensor_on or (not winch.is_out_of_line and winch.depth < 417):  # 417 is 50 meters
-                print("winching down")
                 winch.down()
             else:
                 winch.motors_off()
@@ -217,6 +217,7 @@ class DownCastState(State):
         # print("Going down to %d..." % winch.target_depth)
 
         if winch.depth >= winch.target_depth:
+            winch.motors_off()
             winch.state_sequence.pop(0)
             return
         if not winch.has_slack and not winch.is_out_of_line:
@@ -240,11 +241,13 @@ class SoakState(State):
         # print("Going up to 0...")
 
         if winch.depth >= winch.soak_depth:
+            winch.motors_off()
+            print("Soaking...")
             sleep(winch.soak_time)
             winch.state_sequence.pop(0)
             return
 
-        if not winch.has_slack and not winch.is_out_of_line:
+        if not winch.has_slack:
             winch.down()
         else:
             winch.motors_off()
@@ -267,7 +270,7 @@ class UpCastState(State):
 
         if winch.depth <= 0:
             winch.state_sequence.pop(0)
-        if not winch.has_slack and not winch.is_docked:
+        if not winch.has_slack:
             winch.up()
         else:
             winch.motors_off()
@@ -318,7 +321,6 @@ class StopState(State):
         :return:
         """
         print("Stopping...")
-        winch.is_stopped = True
         winch.motors_off()
         winch.state_sequence = []
-        winch.command = None
+        command = None
