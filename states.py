@@ -1,5 +1,12 @@
 from abc import ABCMeta, abstractmethod
-import RPi.GPIO as GPIO
+import socket
+from time import sleep
+from time import time
+
+try:
+    import RPi.GPIO as GPIO
+except:
+    pass
 
 
 class State(metaclass=ABCMeta):
@@ -44,28 +51,35 @@ class InitState(State):
         :param winch: Context
         :return:
         """
-        #Initialize GPIO
+        # Initialize GPIO
 
-        GPIO.setmode(GPIO.BCM)
+        # GPIO.setmode(GPIO.BCM)
+        #
+        # # Create a dictionary called pins to store the pin number, name, and pin state:
+        # winch.pins = {
+        #    23 : {'name' : 'GPIO 23 (up)', 'state' : GPIO.LOW},
+        #    24 : {'name' : 'GPIO 24 (down)', 'state' : GPIO.LOW}
+        #    }
+        #
+        # # Set each pin as an output and make it low:
+        # for pin in winch.pins:
+        #    GPIO.setup(pin, GPIO.OUT)
+        #    GPIO.output(pin, GPIO.LOW)
+        #
+        #
+        #
+        # #winch.payout_rate = int(input("Payout rate: "))
 
-        # Create a dictionary called pins to store the pin number, name, and pin state:
-        winch.pins = {
-           23 : {'name' : 'GPIO 23 (up)', 'state' : GPIO.LOW},
-           24 : {'name' : 'GPIO 24 (down)', 'state' : GPIO.LOW}
-           }
+        UDP_IP = "127.0.0.1"
+        UDP_PORT = 5005
 
-        # Set each pin as an output and make it low:
-        for pin in winch.pins:
-           GPIO.setup(pin, GPIO.OUT)
-           GPIO.output(pin, GPIO.LOW)
-
-
-    
-        #winch.payout_rate = int(input("Payout rate: "))
+        winch.sock = socket.socket(socket.AF_INET,  # Internet
+                                   socket.SOCK_DGRAM)  # UDP
+        winch.sock.bind((UDP_IP, UDP_PORT))
+        winch.sock.settimeout(0.01)
         winch.queue_command({"from": "INIT", "to": "STDBY"})
         winch.execute_command_stack()
-        
-      
+
     def on_exit_behavior(self, winch):
         pass
 
@@ -81,7 +95,9 @@ class StdbyState(State):
         :param winch: Context
         :return:
         """
-        command = input("Enter Command (HELP for help): ")
+        command = None
+        while command is None:
+            command = winch.receive_command()
         winch.queue_command({"from": "STDBY", "to": command})
         winch.execute_command_stack()
 
@@ -120,7 +136,7 @@ class ManualWinchOutState(State):
         :param winch: Context
         :return:
         """
-        
+
         while True:
             cmd = (input("Start, STOP or EXIT: "))
             if cmd == "START":
@@ -130,11 +146,8 @@ class ManualWinchOutState(State):
             elif cmd == "EXIT":
                 break
             else:
-                print("Invalid input:",cmd)
+                print("Invalid input:", cmd)
                 winch.stop()
-        
-            
-   
 
     def on_exit_behavior(self, winch):
         pass
@@ -150,20 +163,12 @@ class ManualWinchInState(State):
         :param winch: Context
         :return:
         """
-       
-        while True:
-            cmd = (input("Start, STOP or EXIT: "))
-            if cmd == "START":
-                winch.up()
-            elif cmd == "STOP":
-                winch.stop()
-            elif cmd == "EXIT":
-                break
-            else:
-                print("Invalid input:",cmd)
-                winch.stop()
-        
-            
+
+        winch.up()
+        while winch.receive_command() == "MANIN":
+            i = i+1
+            pass
+        winch.stop()
 
     def on_exit_behavior(self, winch):
         pass
@@ -179,8 +184,11 @@ class DownCastState(State):
         :param winch:
         :return:
         """
-        winch.down(winch.down_time)
-        
+        winch.down()
+        while winch.receive_command() == "MANOUT":
+            pass
+        winch.stop()
+
     def on_exit_behavior(self, winch):
         pass
 

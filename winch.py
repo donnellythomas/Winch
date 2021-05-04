@@ -1,5 +1,10 @@
+import socket
 import threading
-import RPi.GPIO as GPIO
+
+try:
+    import RPi.GPIO as GPIO
+except:
+    pass
 
 from time import sleep
 
@@ -12,13 +17,11 @@ class Winch(Context):
     command_sequence = []
     target_depth = 0
     depth = 0
-    conductivity = 0;
+    conductivity = 0
     temp = 0
     pins = None
-    down_time = 0
-    up_time = 0
-
     error_message = ""
+    sock = None;
 
     def __init__(self, context_name):
         Context.__init__(self, context_name)
@@ -55,7 +58,7 @@ class Winch(Context):
         :return:
         """
         self.command_sequence.append(command)
-        # print("COMMAND QUEUE:", self.command_sequence)
+        print("COMMAND QUEUE:", self.command_sequence)
 
     def execute_command_stack(self):
         """
@@ -71,25 +74,23 @@ class Winch(Context):
         Winch out
         :return:
         """
-        GPIO.output(24, GPIO.LOW)
-        GPIO.output(23, GPIO.HIGH)
-
-
+        print("Going down...")
+        # GPIO.output(24, GPIO.LOW)
+        # GPIO.output(23, GPIO.HIGH)
 
     def up(self):
         """
         Winch in
         :return:
         """
-        GPIO.output(23, GPIO.LOW)
-        GPIO.output(24, GPIO.HIGH)
-        
+        print("Going up...")
+        # GPIO.output(23, GPIO.LOW)
+        # GPIO.output(24, GPIO.HIGH)
+
     def stop(self):
-        GPIO.output(23, GPIO.LOW)
-        GPIO.output(24, GPIO.LOW)
-        
-
-
+        print("Stopping...")
+        # GPIO.output(23, GPIO.LOW)
+        # GPIO.output(24, GPIO.LOW)
 
     def report_position(self):
         """
@@ -106,6 +107,15 @@ class Winch(Context):
         """
         self.error_message = message
         self.do_transition({"from": self.get_state().get_name(), "to": "ERROR"})
+
+    def receive_command(self):
+        try:
+            command, addr = self.sock.recvfrom(1024)  # buffer size is 1024 bytes
+            command = command.decode();
+        except socket.timeout:
+            return None
+        print("received command: %s" % command)
+        return command
 
 
 if __name__ == "__main__":
