@@ -3,8 +3,10 @@ import threading
 
 try:
     import RPi.GPIO as GPIO
+
+    sim = False
 except:
-    pass
+    sim = True
 
 from time import sleep
 
@@ -13,6 +15,7 @@ from states import *
 
 
 class Winch(Context):
+    sim = None;
     payout_rate = 0
     state_sequence = []
     target_depth = 0
@@ -26,7 +29,6 @@ class Winch(Context):
     dock_pin = None
     up_pin = None
     down_pin = None
-    
 
     def __init__(self, context_name):
         Context.__init__(self, context_name)
@@ -119,10 +121,10 @@ class Winch(Context):
         UDP_IP = "127.0.0.1"
         UDP_PORT = 5008
         sock = socket.socket(socket.AF_INET,  # Internet
-                                   socket.SOCK_DGRAM)  # UDP
+                             socket.SOCK_DGRAM)  # UDP
         sock.bind((UDP_IP, UDP_PORT))
         sock.settimeout(1)
-        
+
         while True:
             try:
                 command, addr = sock.recvfrom(1024)  # buffer size is 1024 bytes
@@ -132,17 +134,18 @@ class Winch(Context):
             except socket.timeout:
                 self.command = None
                 print("Command timeout")
-            
+
     def has_slack(self):
         return GPIO.input(self.slack_pin) == GPIO.HIGH
-    
+
     def is_docked(self):
         return GPIO.input(self.dock_pin) == GPIO.LOW
-    
+
     def is_out_of_line(self):
         return GPIO.input(self.dock_pin) == GPIO.LOW
-    
+
 
 if __name__ == "__main__":
     winch = Winch("my_winch")
+    if sim: Winch.sim = True
     winch.power_on()

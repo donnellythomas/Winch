@@ -1,4 +1,3 @@
-from abc import ABCMeta, abstractmethod
 import socket
 from time import sleep
 from time import time
@@ -9,7 +8,7 @@ except:
     pass
 
 
-class State(metaclass=ABCMeta):
+class State():
     """State base class"""
 
     def __init__(self, name):
@@ -25,7 +24,6 @@ class State(metaclass=ABCMeta):
         """
         return self.__name
 
-    @abstractmethod
     def on_entry_behavior(self, winch):
         """
         Entry behavior of the state
@@ -34,7 +32,6 @@ class State(metaclass=ABCMeta):
         """
         pass
 
-    @abstractmethod
     def on_exit_behavior(self, winch):
         """
         Exits behavior of the state
@@ -53,26 +50,26 @@ class InitState(State):
         """
         # Initialize GPIO
 
-        GPIO.setmode(GPIO.BCM)
         #
         # # Create a dictionary called pins to store the pin number, name, and pin state:
         winch.slack_pin = 6
         winch.dock_pin = 17
         winch.up_pin = 23
         winch.down_pin = 24
-        
-        ## Set each pin as an output and make it low:
-        GPIO.setup(winch.up_pin, GPIO.OUT)
-        GPIO.output(winch.up_pin, GPIO.LOW)
-        GPIO.setup(winch.down_pin, GPIO.OUT)
-        GPIO.output(winch.down_pin, GPIO.LOW)
-            
-        # Slack sensor
-        GPIO.setup(winch.slack_pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-        GPIO.add_event_detect(winch.slack_pin, GPIO.BOTH)
-        
-        GPIO.setup(winch.dock_pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-        GPIO.add_event_detect(winch.dock_pin, GPIO.BOTH)
+        if not winch.sim:
+            GPIO.setmode(GPIO.BCM)
+            ## Set each pin as an output and make it low:
+            GPIO.setup(winch.up_pin, GPIO.OUT)
+            GPIO.output(winch.up_pin, GPIO.LOW)
+            GPIO.setup(winch.down_pin, GPIO.OUT)
+            GPIO.output(winch.down_pin, GPIO.LOW)
+
+            # Slack sensor
+            GPIO.setup(winch.slack_pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+            GPIO.add_event_detect(winch.slack_pin, GPIO.BOTH)
+
+            GPIO.setup(winch.dock_pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+            GPIO.add_event_detect(winch.dock_pin, GPIO.BOTH)
         #
         #
         #
