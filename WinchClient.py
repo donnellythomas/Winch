@@ -1,5 +1,7 @@
 import socket
 import threading
+import tkinter as tk
+
 from time import sleep
 
 UDP_IP = "127.0.0.1"
@@ -10,41 +12,39 @@ print("UDP target port: %s" % UDP_PORT)
 sock = socket.socket(socket.AF_INET,  # Internet
                      socket.SOCK_DGRAM)  # UDP
 
-while True:
-    cmd = raw_input("Command: ")
-    for i in range(50):
-        print("sending command:", cmd)
-        sock.sendto(str.encode(cmd), (UDP_IP, UDP_PORT))
-        sleep(.1)
+master = tk.Tk()
+master.title("CTD Winch Interface")
 
-# def send_command():
-#     global command
-#     print("sending command:", command)
-#     while toggle_btn.config('relief')[-1] == 'sunken':
-#         sock.sendto(str.encode(command), (UDP_IP, UDP_PORT))
-#
-#
-# def toggle():
-#     x = threading.Thread(target=send_command)
-#     if toggle_btn.config('relief')[-1] == 'sunken':
-#         toggle_btn.config(relief="raised")
-#     else:
-#         threading.send_command()
-#         toggle_btn.config(relief="sunken")
-#
-#
-#
-# master = tkinter.Tk()
-# master.title("pack() method")
-# commands = ["MANIN", "MANOUT", "CAST", "REPORTPOSITION"]
-# for command in commands:
-#     # button = tkinter.Button(master, text=command, width=20, height=5)
-#     command = command
-#     toggle_btn = tkinter.Button(text=command, width=20, relief="raised", command=toggle)
-#
-#     t = threading.Timer(0.09, command=send_command)
-#     toggle_btn.bind('<ButtonPress-1>', lambda event, command=command: t.start())
-#     toggle_btn.bind('<ButtonRelease-1>', lambda event, command=command: t.cancel())
-#     toggle_btn.pack(side=tkinter.TOP)
-#
-# master.mainloop()
+current_command = ""
+
+
+def set_command(command):
+    global current_command
+    current_command = command
+
+
+def send_command():
+    global current_command
+    while True:
+        if current_command in {"MANIN", "MANOUT"}:
+            print("Current Command:", current_command)
+            sock.sendto(str.encode(current_command), (UDP_IP, UDP_PORT))
+            sleep(.10)
+        elif current_command != "":
+            print("Current Command:", current_command)
+            sock.sendto(str.encode(current_command), (UDP_IP, UDP_PORT))
+            current_command = ""
+
+
+t = threading.Thread(target=send_command)
+t.start()
+tk.Button(master, text='MANIN', command=lambda *args: set_command("MANIN")).pack()
+tk.Button(master, text='MANOUT', command=lambda *args: set_command("MANOUT")).pack()
+tk.Button(master, text='STOP', command=lambda *args: set_command("STOP")).pack()
+tk.Label(master, text="CAST TO").pack()
+entry = tk.Entry(master)
+entry.pack()
+tk.Button(master, text='CAST', command=lambda *args: set_command("CAST " + entry.get())).pack()
+tk.Button(master, text='READDATA', command=lambda *args: set_command("READDATA")).pack()
+
+master.mainloop()

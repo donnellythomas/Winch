@@ -1,6 +1,3 @@
-import socket
-import threading
-
 try:
     import RPi.GPIO as GPIO
 
@@ -36,7 +33,7 @@ class Winch(Context):
         self.add_state(InitState("INIT"))
         self.add_state(StdbyState("STDBY"))
         self.add_state(CastState("CAST"))
-        self.add_state(HelpState("HELP"))
+        self.add_state(StopState("STOP"))
         self.add_state(DownCastState("DOWNCAST"))
         self.add_state(UpCastState("UPCAST"))
         self.add_state(ReadDataState("READDATA"))
@@ -82,23 +79,31 @@ class Winch(Context):
         Winch out
         :return:
         """
-        print("Going down...")
-        GPIO.output(24, GPIO.LOW)
-        GPIO.output(23, GPIO.HIGH)
+        if not self.sim:
+            GPIO.output(24, GPIO.LOW)
+            GPIO.output(23, GPIO.HIGH)
+        else:
+            winch.depth += 1
+            sleep(1)
 
     def up(self):
         """
         Winch in
         :return:
         """
-        print("Going up...")
-        GPIO.output(23, GPIO.LOW)
-        GPIO.output(24, GPIO.HIGH)
+        if not self.sim:
+            GPIO.output(23, GPIO.LOW)
+            GPIO.output(24, GPIO.HIGH)
+        else:
+            winch.depth -= 1
+            sleep(1)
 
     def stop(self):
-        print("Stopping...")
-        GPIO.output(23, GPIO.LOW)
-        GPIO.output(24, GPIO.LOW)
+        if not self.sim:
+            GPIO.output(23, GPIO.LOW)
+            GPIO.output(24, GPIO.LOW)
+        self.do_transition({"from": self.get_state().get_name(), "to": "STOP"})
+
 
     def report_position(self):
         """
@@ -116,6 +121,7 @@ class Winch(Context):
         self.error_message = message
         self.do_transition({"from": self.get_state().get_name(), "to": "ERROR"})
 
+
     def receive_commands(self):
         print("Starting command thread")
         UDP_IP = "127.0.0.1"
@@ -128,21 +134,36 @@ class Winch(Context):
         while True:
             try:
                 command, addr = sock.recvfrom(1024)  # buffer size is 1024 bytes
-                self.command = command.decode();
-                print("received command: %s" % self.command)
+                self.command = command.decode()
+                # print("received command: %s" % self.command)
 
             except socket.timeout:
                 self.command = None
-                print("Command timeout")
+                # print("Command timeout")
 
     def has_slack(self):
-        return GPIO.input(self.slack_pin) == GPIO.HIGH
+        if not winch.sim:
+            slack = GPIO.input(self.slack_pin) == GPIO.HIGH
+        else:
+            slack = False
+        # print("Has Slack:", slack)
+        return slack
 
     def is_docked(self):
-        return GPIO.input(self.dock_pin) == GPIO.LOW
+        if not winch.sim:
+            docked = GPIO.input(self.dock_pin) == GPIO.LOW
+        else:
+            docked = False
+        # print("Is docked:", docked)
+        return docked
 
     def is_out_of_line(self):
-        return GPIO.input(self.dock_pin) == GPIO.LOW
+        if not winch.sim:
+            out_of_line = GPIO.input(self.dock_pin) == GPIO.LOW
+        else:
+            out_of_line = False
+        # print("Is out_of_line:", out_of_line)
+        return out_of_line
 
 
 if __name__ == "__main__":
