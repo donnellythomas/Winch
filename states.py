@@ -7,9 +7,10 @@ try:
     import RPi.GPIO as GPIO
 except:
     pass
+import numpy as np
 
 
-class State():
+class State:
     """State base class"""
 
     def __init__(self, name):
@@ -35,7 +36,7 @@ class State():
 
     def on_exit_behavior(self, winch):
         """
-        Exits behavior of the state
+        Exit behavior of the state
         :param winch: Context
         :return:
         """
@@ -71,19 +72,18 @@ class InitState(State):
 
             GPIO.setup(winch.dock_pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
             GPIO.add_event_detect(winch.dock_pin, GPIO.BOTH)
-        
+
         with file(winch.cal_file) as f:
             while True:
                 try:
-                    rot,m = f.readline().split()
-                    winch.cal_data['rotations'].append(rot)
-                    winch.cal_data['meters'].append(m)
+                    rot, m = f.readline().split()
+                    winch.cal_data['rotations'].append(float(rot))
+                    winch.cal_data['meters'].append(float(m))
                 except:
                     print("Finished reading data.")
                     print("Read %d values." % len(winch.cal_data["rotations"]))
                     break
-        
-        
+
         command_thread = threading.Thread(target=winch.receive_commands)
         command_thread.start()
 
@@ -99,16 +99,24 @@ class StdbyState(State):
         :param winch: Context
         :return:
         """
-
+        winch.stopped = False
         while winch.command is None:
             pass
 
-        if len(winch.command.split()) == 2:
-            winch.target_depth = int(winch.command.split()[1])
-            winch.command = winch.command.split()[0]
+        try:
+            if len(winch.command.split()) == 2:
+                meters = long(winch.command.split()[1])
+                if meters < 0 or meters > 50:
+                    raise Exception
+                winch.command = winch.command.split()[0]
+                winch.target_depth = np.interp(meters, winch.cal_data["meters"], winch.cal_data["rotations"])
 
-        winch.queue_command({"from": "STDBY", "to": winch.command})
-        winch.execute_state_stack()
+            winch.queue_command({"from": "STDBY", "to": winch.command})
+            winch.execute_state_stack()
+        except:
+            print("Command not valid")
+            sleep(.5)
+            winch.do_transition({"from": "STDBY", "to": "STDBY"})
 
 
 class CastState(State):
@@ -137,8 +145,6 @@ class ManualWinchOutState(State):
 
         while winch.command == "MANOUT":
             winch.down()
-        print("Stopping...")
-        winch.stop()
 
 
 class ManualWinchInState(State):
@@ -151,8 +157,6 @@ class ManualWinchInState(State):
         print("Going up...")
         while winch.command == "MANIN":
             winch.up()
-        print("Stopping...")
-        winch.stop()
 
 
 class DownCastState(State):
@@ -163,14 +167,9 @@ class DownCastState(State):
         :return:
         """
         print("Going down to %d..." % winch.target_depth)
-        while winch.depth < winch.target_depth:
-            if winch.command == "STOP":
-                break
+        while winch.depth < winch.target_depth and not winch.stopped:
             winch.down()
             print("Depth: %d, Target: %d" % (winch.depth, winch.target_depth))
-
-        print("Stopping...")
-        winch.stop()
 
 
 class UpCastState(State):
@@ -181,13 +180,9 @@ class UpCastState(State):
         :return:
         """
         print("Going up to 0...")
-        while winch.depth > 0:
-            if winch.command == "STOP":
-                break
+        while winch.depth > 0 and not winch.stopped:
             winch.up()
             print("Depth: %d, Target: %d" % (winch.depth, winch.target_depth))
-        print("Stopping...")
-        winch.stop()
 
 
 class ReadDataState(State):
@@ -225,6 +220,8 @@ class StopState(State):
         :param winch: Context
         :return:
         """
+        print("Stopping...")
+        winch.stopped = True
         winch.motors_off()
         winch.state_sequence = []
         winch.command = None

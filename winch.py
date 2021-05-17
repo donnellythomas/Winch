@@ -26,12 +26,13 @@ class Winch(Context):
     dock_pin = None
     up_pin = None
     down_pin = None
+    stopped = True
 
-    def __init__(self, context_name, cal_file = 'cal_data.txt'):
+    def __init__(self, context_name, cal_file='cal_data.txt'):
         Context.__init__(self, context_name)
         # add all the states to the winch
         self.cal_file = cal_file
-        self.cal_data = {"rotations":[], "meters":[]}
+        self.cal_data = {"rotations": [], "meters": []}
         self.add_state(InitState("INIT"))
         self.add_state(StdbyState("STDBY"))
         self.add_state(CastState("CAST"))
@@ -85,7 +86,8 @@ class Winch(Context):
             if not (winch.has_slack() or winch.is_out_of_line()):  # slack
                 GPIO.output(24, GPIO.LOW)
                 GPIO.output(23, GPIO.HIGH)
-            else: self.motors_off()
+            else:
+                self.motors_off()
 
         else:
             winch.depth += 1
@@ -100,7 +102,8 @@ class Winch(Context):
             if not (winch.has_slack() or winch.is_docked()):
                 GPIO.output(23, GPIO.LOW)
                 GPIO.output(24, GPIO.HIGH)
-            else: self.motors_off()
+            else:
+                self.motors_off()
         else:
             winch.depth -= 1
             sleep(1)
@@ -109,10 +112,9 @@ class Winch(Context):
         if not self.sim:
             GPIO.output(23, GPIO.LOW)
             GPIO.output(24, GPIO.LOW)
-            
+
     def stop(self):
         self.do_transition({"from": self.get_state().get_name(), "to": "STOP"})
-
 
     def report_position(self):
         """
@@ -130,7 +132,6 @@ class Winch(Context):
         self.error_message = message
         self.do_transition({"from": self.get_state().get_name(), "to": "ERROR"})
 
-
     def receive_commands(self):
         print("Starting command thread")
         UDP_IP = "127.0.0.1"
@@ -138,12 +139,14 @@ class Winch(Context):
         sock = socket.socket(socket.AF_INET,  # Internet
                              socket.SOCK_DGRAM)  # UDP
         sock.bind((UDP_IP, UDP_PORT))
-        sock.settimeout(1)
+        sock.settimeout(.4)
 
         while True:
             try:
                 command, addr = sock.recvfrom(1024)  # buffer size is 1024 bytes
                 self.command = command.decode()
+                if self.command == "STOP":
+                    winch.stop()
                 # print("received command: %s" % self.command)
 
             except socket.timeout:
