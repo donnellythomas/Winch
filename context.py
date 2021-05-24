@@ -53,7 +53,7 @@ class Context:
     def do_transition(self, msg):
         """
         Map containing From and To state transitions using state names
-        :param msg: Map<String,String>
+        :param msg: String
         :return:
         """
         current = self.__currentState.get_name()

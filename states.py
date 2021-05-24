@@ -3,6 +3,7 @@ from time import sleep
 from time import time
 import threading
 import traceback
+
 try:
     import RPi.GPIO as GPIO
 except:
@@ -63,16 +64,15 @@ class InitState(State):
             GPIO.setup(winch.out_of_line_pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
 
             # Slack sensor
-            #GPIO.add_event_detect(12, GPIO.BOTH, callback=dockstop)
+            # GPIO.add_event_detect(12, GPIO.BOTH, callback=dockstop)
 
             GPIO.add_event_detect(winch.slack_pin, GPIO.BOTH, callback=winch.slack_callback)
             GPIO.add_event_detect(winch.dock_pin, GPIO.BOTH, callback=winch.docked_callback)
             GPIO.add_event_detect(winch.out_of_line_pin, GPIO.BOTH, callback=winch.out_of_line_callback)
 
-        #If line has slack initiall set stopped to true;
+            # If line has slack initiall set has_slack to true;
             if GPIO.input(winch.slack_pin) == GPIO.HIGH:
-                winch.stopped = True
-
+                winch.has_slack = True
 
         with file(winch.cal_file) as f:
             while True:
@@ -88,7 +88,7 @@ class InitState(State):
         command_thread = threading.Thread(target=winch.receive_commands)
         command_thread.start()
 
-        winch.queue_command({"from": "INIT", "to": "STDBY"})
+        winch.queue_command("STDBY")
         winch.execute_state_stack()
 
 
@@ -148,9 +148,9 @@ class ManualWinchOutState(State):
         :param winch: Context
         :return:
         """
-        if not winch.stopped:
+        if not (winch.has_slack or winch.is_out_of_line):
             winch.down()
-    
+
 
 class ManualWinchInState(State):
     def on_entry_behavior(self, winch):
@@ -159,7 +159,7 @@ class ManualWinchInState(State):
         :param winch: Context
         :return:
         """
-        if not winch.stopped:
+        if not (winch.has_slack or winch.is_docked):
             winch.up()
 
 
@@ -172,7 +172,7 @@ class DownCastState(State):
         """
         print("Going down to %d..." % winch.target_depth)
         while winch.depth < winch.target_depth:
-            if(winch.direction != "down"):
+            if winch.direction != "down" and not winch.is_out_of_line:
                 winch.down()
             print("Depth: %d, Target: %d" % (winch.depth, winch.target_depth))
 
@@ -185,8 +185,8 @@ class UpCastState(State):
         :return:
         """
         print("Going up to 0...")
-        while winch.depth > 0 and not winch.stopped:
-            if(winch.direction != "up"):
+        while winch.depth > 0 and not winch.has_slack:
+            if winch.direction != "up" and not winch.is_docked:
                 winch.up()
             print("Depth: %d, Target: %d" % (winch.depth, winch.target_depth))
 
@@ -213,7 +213,7 @@ class ErrorState(State):
         winch.state_sequence = []
         print("ERROR:", winch.error_message)
         winch.error_message = ""
-        winch.queue_command({"from": "ERROR", "to": "STDBY"})
+        winch.queue_command("STDBY")
         winch.execute_state_stack()
 
 
@@ -226,7 +226,7 @@ class StopState(State):
         :return:
         """
         print("Stopping...")
-        winch.stopped = True
+        winch.has_slack = True
         winch.motors_off()
         winch.state_sequence = []
         winch.command = None

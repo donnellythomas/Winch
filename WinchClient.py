@@ -1,6 +1,6 @@
 import socket
 import threading
-import tkinter as tk
+import Tkinter as tk
 from time import sleep
 
 # IP and port for UDP current values are what I was using for testing
@@ -57,7 +57,6 @@ entry = tk.Entry(master)
 entry.pack()
 tk.Button(master, text='CAST', command=lambda *args: set_command("CAST " + entry.get())).pack()
 tk.Button(master, text='READDATA', command=lambda *args: set_command("READDATA")).pack()
-current_command = ""
 t = threading.Thread(target=send_command)
 t.start()
 master.mainloop()

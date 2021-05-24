@@ -12,21 +12,27 @@ from states import *
 
 
 class Winch(Context):
-    sim = None;
-    payout_rate = 0
+    sim = None # for running when not on raspberry pi
+
     state_sequence = []
+
     target_depth = 0
     depth = 0
     conductivity = 0
     temp = 0
+
     command = None
+
     slack_pin = None
     dock_pin = None
     up_pin = None
     out_of_line_pin = None
     down_pin = None
-    direction = "";
-    stopped = False
+
+    direction = ""
+    has_slack = False
+    is_docked = True
+    is_out_of_line = False
 
     def __init__(self, context_name, cal_file='cal_data.txt'):
         Context.__init__(self, context_name)
@@ -97,7 +103,7 @@ class Winch(Context):
         Winch in
         :return:
         """
-        direction="up"
+        direction = "up"
         print("Going up...")
         if not self.sim:
             GPIO.output(23, GPIO.LOW)
@@ -112,18 +118,18 @@ class Winch(Context):
         if not self.sim:
             GPIO.output(23, GPIO.LOW)
             GPIO.output(24, GPIO.LOW)
-            
+
     def slack_callback(self, channel):
         if GPIO.input(channel) == GPIO.HIGH:
-            self.stopped = True
+            self.has_slack = True
             self.motors_off()
         else:
-            self.stopped = False
+            self.has_slack = False
             if self.direction == "up":
                 self.up()
             elif self.direction == "down":
                 self.down()
-        
+
     def stop(self):
         self.direction = ""
         self.do_transition("STOP")
@@ -171,30 +177,30 @@ class Winch(Context):
         if GPIO.input(channel) == GPIO.LOW:
             print("Docked")
             self.stop()
-        
 
     def out_of_line_callback(self, channel):
         if GPIO.input(channel) == GPIO.LOW:
             print("Out of line")
             self.stop()
-    
+
     def is_docked(self):
         if GPIO.input(self.dock_pin) == GPIO.LOW:
             print("Out of line")
             self.stop()
-            
+
     def is_out_of_line(self):
         if GPIO.input(self.out_of_line_pin) == GPIO.LOW:
             print("Out of line")
             self.stop()
-            
+
     def depth_callback(self, channel):
         if self.direction == "up":
-            depth -=1
+            self.depth -= 1
         elif self.direction == "down":
-            depth +=1
+            self.depth += 1
         else:
             print("ERROR: Winch moving without known direction")
+
 
 if __name__ == "__main__":
     winch = Winch("my_winch")
