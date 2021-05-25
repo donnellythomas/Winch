@@ -12,21 +12,21 @@ from states import *
 
 
 class Winch(Context):
-    sim = None # for running when not on raspberry pi
-    
+    sim = None  # for running when not on raspberry pi
+
     # Sequence of states for commands that require multiple state changes
     # for example CAST
     state_sequence = []
-    
+
     # CTD Data
     conductivity = 0
     temp = 0
     depth = 0
-    
-    #soak params
+
+    # soak params
     soak_depth = 0
     soak_time = 0
-    
+
     # Target depth that the winch is currently paying out to
     target_depth = 0
 
@@ -40,15 +40,19 @@ class Winch(Context):
     out_of_line_pin = None
     down_pin = None
     depth_pin = None
-    
+
     # Current direction winch is moving, can be UP or DOWN
     direction = ""
-    
+
     # Flags for current state of the winch
     has_slack = False
     is_docked = False
     is_out_of_line = False
     is_stopped = False
+
+    slack_sensor_on = True
+    dock_sensor_on = True
+    line_sensor_on = True
 
     def __init__(self, context_name, cal_file='cal_data.txt'):
         Context.__init__(self, context_name)
@@ -66,7 +70,6 @@ class Winch(Context):
         self.add_state(ManualWinchInState("MANIN"))
         self.add_state(ManualWinchOutState("MANOUT"))
         self.add_state(SoakState("SOAK"))
-        
 
     def power_on(self):
         """
@@ -105,7 +108,7 @@ class Winch(Context):
         :return:
         """
         self.direction = "down"
-    #    print("Going down...")
+        #    print("Going down...")
 
         if not self.sim:
             GPIO.output(24, GPIO.LOW)
@@ -121,7 +124,7 @@ class Winch(Context):
         :return:
         """
         self.direction = "up"
-#         print("Going up...")
+        #         print("Going up...")
         if not self.sim:
             GPIO.output(23, GPIO.LOW)
             GPIO.output(24, GPIO.HIGH)
@@ -141,9 +144,8 @@ class Winch(Context):
             self.has_slack = True
             self.motors_off()
         elif self.has_slack:
-#            print("slack released")
+            #            print("slack released")
             self.has_slack = False
-
 
     def stop(self):
         self.direction = ""
@@ -182,6 +184,25 @@ class Winch(Context):
                 self.command = command.decode()
                 if self.command == "STOP":
                     self.stop()
+                if self.command == "SLACKOFF":
+                    self.slack_sensor_on = False
+                    self.command = None
+                if self.command == "SLACKON":
+                    self.slack_sensor_on = True
+                    self.command = None
+                if self.command == "DOCKOFF":
+                    self.dock_sensor_on = False
+                    self.command = None
+                if self.command == "DOCKON":
+                    self.dock_sensor_on = True
+                    self.command = None
+                if self.command == "LINEOFF":
+                    self.line_sensor_on = False
+                    self.command = None
+                if self.command == "LINEON":
+                    self.line_sensor_on = True
+                    self.command = None
+
                 # print("received command: %s" % self.command)
 
             except:
@@ -205,7 +226,6 @@ class Winch(Context):
         else:
             self.is_out_of_line = False
 
-
     def depth_callback(self, channel):
         if self.direction == "up":
             self.depth -= 1
@@ -214,7 +234,6 @@ class Winch(Context):
         else:
             print("ERROR: Winch moving without known direction")
         print("Depth: %d, Target: %d" % (winch.depth, winch.target_depth))
-
 
 
 if __name__ == "__main__":

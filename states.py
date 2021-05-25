@@ -63,7 +63,7 @@ class InitState(State):
             GPIO.setup(winch.slack_pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
             GPIO.setup(winch.dock_pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
             GPIO.setup(winch.out_of_line_pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-            GPIO.setup(21, GPIO.IN,pull_up_down = GPIO.PUD_UP)
+            GPIO.setup(21, GPIO.IN, pull_up_down=GPIO.PUD_UP)
 
             # Slack sensor
             # GPIO.add_event_detect(12, GPIO.BOTH, callback=dockstop)
@@ -71,7 +71,7 @@ class InitState(State):
             GPIO.add_event_detect(winch.slack_pin, GPIO.BOTH, callback=winch.slack_callback)
             GPIO.add_event_detect(winch.dock_pin, GPIO.BOTH, callback=winch.docked_callback)
             GPIO.add_event_detect(winch.out_of_line_pin, GPIO.BOTH, callback=winch.out_of_line_callback)
-            GPIO.add_event_detect(21, GPIO.FALLING,callback = winch.depth_callback,bouncetime=100)
+            GPIO.add_event_detect(21, GPIO.FALLING, callback=winch.depth_callback, bouncetime=100)
 
             # If line has slack initiall set has_slack to true;
             if GPIO.input(winch.slack_pin) == GPIO.HIGH:
@@ -80,6 +80,10 @@ class InitState(State):
                 winch.is_docked = True
             if GPIO.input(winch.out_of_line_pin) == GPIO.LOW:
                 winch.is_out_of_line = True
+
+        winch.dock_sensor_on = True
+        winch.line_sensor_on = True
+        winch.slack_sensor_on = True
 
         with file(winch.cal_file) as f:
             while True:
@@ -124,12 +128,12 @@ class StdbyState(State):
                     soak_time = float(winch.command.split()[3])
                     if meters < 0 or meters > 50 or soak_depth > 50:
                         raise Exception
-                    
-                    if soak_depth<0:
+
+                    if soak_depth < 0:
                         winch.soak_depth = np.interp(1.1, winch.cal_data["meters"], winch.cal_data["rotations"])
                     else:
                         winch.soak_depth = np.interp(soak_depth, winch.cal_data["meters"], winch.cal_data["rotations"])
-                    if soak_time<0:
+                    if soak_time < 0:
                         winch.soak_time = 60
                     else:
                         winch.soak_time = soak_time
@@ -154,6 +158,7 @@ class CastState(State):
         :return:
         """
         print("Casting to %d..." % winch.target_depth)
+        winch.queue_command("SOAK")
         winch.queue_command("DOWNCAST")
         winch.queue_command("UPCAST")
         winch.queue_command("READDATA")
@@ -170,15 +175,17 @@ class ManualWinchOutState(State):
         :return:
         """
         print("Entered MANOUT")
-        print("has slack: "+str(winch.has_slack))
-        print("is out of line: "+ str(winch.is_out_of_line))
-        
-        if not winch.has_slack:
-            if not winch.is_out_of_line and winch.depth < 417: #417 is 50 meters
+        print("has slack: " + str(winch.has_slack))
+        print("is out of line: " + str(winch.is_out_of_line))
+
+        if not (winch.has_slack or winch.slack_sensor_on):
+            if not winch.line_sensor_on or (not winch.is_out_of_line and winch.depth < 417):  # 417 is 50 meters
                 print("winching down")
                 winch.down()
-            else: winch.motors_off()
-    
+            else:
+                winch.motors_off()
+
+
 class ManualWinchInState(State):
     def on_entry_behavior(self, winch):
         """
@@ -186,10 +193,11 @@ class ManualWinchInState(State):
         :param winch: Context
         :return:
         """
-        if not (winch.has_slack or winch.is_docked):
-            if winch.depth >0:
+        if not (winch.has_slack or winch.slack_sensor_on):
+            if not winch.dock_sensor_on or (not winch.is_docked and winch.depth > 0):
                 winch.up()
-            else: winch.motors_off()
+            else:
+                winch.motors_off()
 
 
 class DownCastState(State):
@@ -200,11 +208,12 @@ class DownCastState(State):
         :return:
         """
         print("Going down to %d..." % winch.target_depth)
-        
+
         while winch.depth < winch.target_depth and not winch.is_stopped:
             if not winch.has_slack and not winch.is_out_of_line:
                 winch.down()
         winch.motors_off()
+
 
 class SoakState(State):
     def on_entry_behavior(self, winch):
@@ -220,6 +229,7 @@ class SoakState(State):
         winch.motors_off()
         sleep(winch.soak_time)
 
+
 class UpCastState(State):
     def on_entry_behavior(self, winch):
         """
@@ -233,6 +243,7 @@ class UpCastState(State):
                 winch.up()
         winch.motors_off()
 
+
 class ReadDataState(State):
     def on_entry_behavior(self, winch):
         """
@@ -240,8 +251,8 @@ class ReadDataState(State):
         :param winch: Context
         :return:
         """
-        #if winch.is_docked:
-         #   winch.error("Winch not docked, cannot read data")
+        # if winch.is_docked:
+        #   winch.error("Winch not docked, cannot read data")
         print("C:", winch.conductivity, "T:", winch.temp, "D:", winch.depth)
 
 
