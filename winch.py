@@ -57,8 +57,7 @@ class Winch(Context):
     
     slack_timer = Timer()
     rotation_timer = Timer()
-    
-    
+
 
     def __init__(self, context_name, cal_file='cal_data.txt'):
         Context.__init__(self, context_name)
