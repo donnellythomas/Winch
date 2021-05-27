@@ -2,9 +2,12 @@ import socket
 import threading
 import tkinter as tk
 from time import sleep
-
+import sys
 # UDP config
-UDP_IP = "127.0.0.1"
+
+UDP_IP = "192.168.100.108"
+if len(sys.argv) > 1:
+    UDP_IP = sys.argv[1]
 UDP_PORT = 5008
 print("UDP target IP: %s" % UDP_IP)
 print("UDP target port: %s" % UDP_PORT)
