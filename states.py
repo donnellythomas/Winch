@@ -1,7 +1,7 @@
 from time import sleep
 import threading
 import traceback
-
+import socket
 # If winch is in simulation RPi cannot be imported
 try:
     import RPi.GPIO as GPIO
