@@ -9,61 +9,11 @@ except:
 from context import Context
 from states import *
 from timer import Timer
+from winch_controller import PiController
 
 
 class Winch(Context):
-    # Simulation flag
-    sim = None
-
-    # Sequence of states that are to be executed
-    state_sequence = []
-
-    # CTD Data - Depth is only one currently being used
-    # This data may instead be gathered externally
-    conductivity = 0
-    temp = 0
-    # Depth is measure in rotations NOT METERS
-    depth = 0
-
-    # soak params
-    soak_depth = 0
-    soak_time = 0
-
-    # Target depth that the winch is currently paying out to
-    target_depth = 0
-
-    # Current command that has been received by the client
-    command = None
-
-    # Raspberry Pi hardware pins for GPIO
-    slack_pin = None
-    dock_pin = None
-    up_pin = None
-    out_of_line_pin = None
-    down_pin = None
-    depth_pin = None
-
-    # Current direction winch is moving, can be UP or DOWN or empty string
-    direction = ""
-
-    # Current state of the winch
-    has_slack = False
-    is_docked = False
-    is_out_of_line = False
-    is_stopped = False
-    has_error = False
-    error_message = ""
-
-    # Flags for enabling and disabling sensors for manual operation
-    slack_sensor_on = True
-    dock_sensor_on = True
-    line_sensor_on = True
-
-    # Timers used for error checking
-    slack_timer = Timer()
-    rotation_timer = Timer()
-
-    def __init__(self, context_name, cal_file='cal_data.txt'):
+    def __init__(self, context_name, controller, cal_file='cal_data.txt'):
         """
         Initialization for Winch parameters (not to be confused with initialization state)
         Arguments:
@@ -71,6 +21,48 @@ class Winch(Context):
             cal_file -- drum rotation calibration file for interpolation
         """
         Context.__init__(self, context_name)
+
+        # Controller for winch (PiController for raspberry pi or SimController for sim
+        self.controller = controller
+        # set callbacks for controller
+        self.controller.set_slack_callback(self.slack_callback)
+        self.controller.set_dock_callback(self.dock_callback)
+        self.controller.set_line_callback(self.line_callback)
+        self.controller.set_rotation_callback(self.rotation_callback)
+
+
+        # Sequence of states that are to be executed
+        self.state_sequence = []
+
+        # Depth is measure in rotations NOT METERS
+        self.depth = 0
+
+        # soak params
+        self.soak_depth = 0
+        self.soak_time = 0
+
+        # Target depth that the winch is currently paying out to
+        self.target_depth = 0
+
+        # Current command that has been received by the client
+        self.command = None
+
+        # Current direction winch is moving, can be UP or DOWN or empty string
+        self.direction = ""
+
+        # Current state of the winch
+        self.is_stopped = False
+        self.has_error = False
+        self.error_message = ""
+
+        # Flags for enabling and disabling sensors for manual operation
+        self.slack_sensor_on = True
+        self.dock_sensor_on = True
+        self.line_sensor_on = True
+
+        # Timers used for error checking
+        self.slack_timer = Timer()
+        self.rotation_timer = Timer()
 
         # Setup for distance interpolation - rotations of drum to meters
         self.cal_file = cal_file
@@ -111,15 +103,7 @@ class Winch(Context):
         # print("Going down...")
 
         self.direction = "down"
-        if not self.sim:
-            # Activate motor
-            GPIO.output(self.down_pin, GPIO.LOW)
-            GPIO.output(self.up_pin, GPIO.HIGH)
-        else:
-            # Simulate winch descending
-            winch.depth += 1
-            self.report_position()
-            sleep(1)
+        self.controller.down()
 
     def up(self):
         """
@@ -129,15 +113,7 @@ class Winch(Context):
         # print("Going up...")
 
         self.direction = "up"
-        if not self.sim:
-            # Activate motor
-            GPIO.output(self.down_pin, GPIO.HIGH)
-            GPIO.output(self.up_pin, GPIO.LOW)
-        else:
-            # Simulate winch ascending
-            winch.depth -= 1
-            self.report_position()
-            sleep(1)
+        self.controller.up()
 
     def motor_off(self):
         """Turn winch motor off"""
@@ -147,15 +123,11 @@ class Winch(Context):
 
         # Timer for rotation checking can be turned off because motor is off
         self.rotation_timer.stop()
-
-        if not self.sim:
-            # Deactivate motor
-            GPIO.output(self.down_pin, GPIO.LOW)
-            GPIO.output(self.up_pin, GPIO.LOW)
+        self.controller.off()
 
     def stop(self):
         """
-        Put the winch into stop state
+        Put the winch into stop state.si
         STOP command is added to the front of the state_sequence so it is the next state to execute
         Within StopState state_sequence is cleared
 
@@ -238,46 +210,38 @@ class Winch(Context):
                 # print("Command timeout")
 
     def slack_callback(self, channel):
-        """Callback for slack sensor for notifying when there is slack in the line"""
-        if GPIO.input(channel) == GPIO.HIGH:
+        """Callback for slack sensor for notifying when there is slack in the line
+            channel is needed for raspi callback"""
+        if self.controller.has_slack():
             # Has slack - restart slack timer and turn motor off
-            self.slack_timer.reset()
-            self.has_slack = True
             self.motor_off()
-        elif self.has_slack:
+            self.slack_timer.reset()
+        elif self.controller.has_slack():
             # Released slack - stop slack timer
+            # ignore if there is already no slack
             self.slack_timer.stop()
-            self.has_slack = False
 
-    def docked_callback(self, channel):
+    def dock_callback(self, channel):
         """Docked callback notifying when winch is in its docked state"""
-        if GPIO.input(channel) == GPIO.LOW:
+        if self.controller.is_docked():
             # In docked position - set depth to 0, put winch into stopped state
             # TODO: Error when reaching docked position when depth is greater than a meter out
             print("Docked")
-            self.is_docked = True
-            self.depth = 0
             self.stop()
-        else:
-            # Released from docked position
-            self.is_docked = False
+            self.depth = 0
 
-    def out_of_line_callback(self, channel):
+    def line_callback(self, channel):
         """
         Out of line callback notifying when the end of the line had been reached
         This callback should never be reached unless in manual operation
         """
-        if GPIO.input(channel) == GPIO.LOW:
+        if self.controller.is_out_of_line():
             # Out of line - put winch into stopped state
             # TODO: Set Depth to Maximum?
-            self.is_out_of_line = True
             print("Out of line")
             self.stop()
-        else:
-            # Line pulled back in
-            self.is_out_of_line = False
 
-    def depth_callback(self, channel):
+    def rotation_callback(self, channel):
         """Rotational callback for drum of winch - called every rotation"""
         # TODO: Add into config file
         # Check rotation timer and check when the drum is rotating too fast
@@ -296,11 +260,9 @@ class Winch(Context):
         else:
             # TODO: Error state here. Winch should never be moving unless up or down is called setting direction
             print("ERROR: Winch moving without known direction")
-        print("Depth: %d, Target: %d" % (winch.depth, winch.target_depth))
+        print("Depth: %d, Target: %d" % (self.depth, self.target_depth))
 
 
 if __name__ == "__main__":
-    winch = Winch("my_winch")
-    if sim:
-        winch.sim = True
+    winch = Winch("my_winch", PiController())
     winch.power_on()

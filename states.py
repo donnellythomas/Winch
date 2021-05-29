@@ -43,40 +43,11 @@ class InitState(State):
     """
 
     def on_entry_behavior(self, winch):
-        # Set pin numbers of hardware
-        winch.slack_pin = 6
-        winch.dock_pin = 12
-        winch.out_of_line_pin = 17
-        winch.depth_pin = 21
-        winch.up_pin = 23
-        winch.down_pin = 24
-
-        if not winch.sim:
-            # GPIO pin setup
-            GPIO.setmode(GPIO.BCM)
-            GPIO.setup(winch.up_pin, GPIO.OUT)
-            GPIO.output(winch.up_pin, GPIO.LOW)
-            GPIO.setup(winch.down_pin, GPIO.OUT)
-            GPIO.output(winch.down_pin, GPIO.LOW)
-            GPIO.setup(winch.slack_pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-            GPIO.setup(winch.dock_pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-            GPIO.setup(winch.out_of_line_pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-            GPIO.setup(21, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-
-            # Setup for callbacks
-            GPIO.add_event_detect(winch.slack_pin, GPIO.BOTH, callback=winch.slack_callback)
-            GPIO.add_event_detect(winch.dock_pin, GPIO.BOTH, callback=winch.docked_callback)
-            GPIO.add_event_detect(winch.out_of_line_pin, GPIO.BOTH, callback=winch.out_of_line_callback)
-            GPIO.add_event_detect(21, GPIO.FALLING, callback=winch.depth_callback, bouncetime=100)
-
-            # Determine current state of sensors (slack, dock, and line)
-            if GPIO.input(winch.slack_pin) == GPIO.HIGH:
-                winch.has_slack = True
-                winch.slack_timer.start()
-            if GPIO.input(winch.dock_pin) == GPIO.LOW:
-                winch.is_docked = True
-            if GPIO.input(winch.out_of_line_pin) == GPIO.LOW:
-                winch.is_out_of_line = True
+        # Set all callbacks
+        winch.controller.set_slack_callback(winch.slack_callback)
+        winch.controller.set_dock_callback(winch.dock_callback)
+        winch.controller.set_line_callback(winch.line_callback)
+        winch.controller.set_rotation_callback(winch.rotation_callback)
 
         # Activate all sensors
         winch.dock_sensor_on = True
@@ -215,9 +186,9 @@ class ManualWinchOutState(State):
             winch.stop()
 
         # Do not winch out if winch has slack and slack sensor is on
-        if not winch.has_slack or not winch.slack_sensor_on:
+        if not winch.controller.has_slack() or not winch.slack_sensor_on:
             # Do not winch down if winch is out of line, depth is > 50, and line sensor is on
-            if not winch.line_sensor_on or (not winch.is_out_of_line and winch.depth < 417):  # 417 is 50 meters
+            if not winch.line_sensor_on or (not winch.controller.is_out_of_line() and winch.depth < 417):  # 417 is 50 meters
                 winch.down()
             else:
                 # Turns off motor when maximum depth is reached
@@ -236,9 +207,9 @@ class ManualWinchInState(State):
             winch.stop()
 
         # Do not winch in if winch has slack and slack sensor is on
-        if not winch.has_slack or not winch.slack_sensor_on:
+        if not winch.controller.has_slack() or not winch.slack_sensor_on:
             # Do not winch down if winch is docked, depth is > 0, and dock sensor is on
-            if not winch.dock_sensor_on or (not winch.is_docked and winch.depth > 0):
+            if not winch.dock_sensor_on or (not winch.controller.is_docked() and winch.depth > 0):
                 winch.up()
             else:
                 # Turns off motor when depth is < 0
@@ -258,7 +229,7 @@ class DownCastState(State):
             return
 
         # TODO: Could be moved to future error/sensor checking state
-        if not winch.has_slack and not winch.is_out_of_line:
+        if not winch.controller.has_slack() and not winch.controller.is_out_of_line():
             winch.down()
         else:
             winch.motor_off()
@@ -277,7 +248,7 @@ class SoakState(State):
             winch.state_sequence.pop(0)
             return
 
-        if not winch.has_slack and not winch.is_out_of_line:
+        if not winch.controller.has_slack() and not winch.controller.is_out_of_line():
             winch.down()
         else:
             winch.motor_off()
@@ -292,7 +263,7 @@ class UpCastState(State):
         # Dock reached
         if winch.depth <= 0:
             winch.state_sequence.pop(0)
-        if not winch.has_slack:
+        if not winch.controller.has_slack():
             winch.up()
         else:
             winch.motor_off()
@@ -302,7 +273,7 @@ class ReadDataState(State):
     """ Read Data from CTD, Not used currently """
 
     def on_entry_behavior(self, winch):
-        # if winch.is_docked:
+        # if winch.controller.is_docked:
         #   winch.error("Winch not docked, cannot read data")
         print("C:", winch.conductivity, "T:", winch.temp, "D:", winch.depth)
         winch.state_sequence.pop(0)
