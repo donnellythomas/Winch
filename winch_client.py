@@ -3,7 +3,7 @@ import threading
 import Tkinter as tk
 from time import sleep
 import sys
-
+import traceback
 
 class WinchClient:
     def __init__(self):
@@ -23,13 +23,25 @@ class WinchClient:
         print("UDP target port: %s" % self.UDP_PORT)
         self.sock = socket.socket(socket.AF_INET,  # Internet
                                   socket.SOCK_DGRAM)  # UDP
-        t = threading.Thread(target=self.send_command)
-        t.start()
+        # self.sock.settimeout(0.04)
+        command_thread = threading.Thread(target=self.send_command)
+        command_thread.start()
+        response_thread = threading.Thread(target=self.receive_command)
+        response_thread.start()
         self.root.mainloop()
 
+    def receive_command(self):
+        while True:
+            command, addr = self.sock.recvfrom(1024)
+            # Decode command into string
+            command = command.decode()
+            if command is not None:
+                self.interface.debug_output.insert_text(command)
+            sleep(0.05)
     def send_command(self):
         """Sends the command over UDP, This method is constantly running in a separate thread"""
         while True:
+
             # MANIN and MANOUT constantly provide input to winch
             if self.current_command in ("MANIN", "MANOUT"):
                 print("Current Command:", self.current_command)
@@ -39,7 +51,8 @@ class WinchClient:
                 print("Current Command:", self.current_command)
                 self.sock.sendto(str.encode(self.current_command), (self.UDP_IP, self.UDP_PORT))
                 self.current_command = ""
-            sleep(.3)
+
+            sleep(.05)
 
     def set_command(self, command):
         """Change the current command"""
@@ -67,12 +80,16 @@ class Controls(tk.PanedWindow):
         manout_btn = tk.Button(self, text='Manual Out', command=lambda: self.winch_client.set_command("MANOUT"))
         stop_btn = tk.Button(self, text='Stop', command=lambda: self.winch_client.set_command("STOP"))
         error_btn = tk.Button(self, text='Clear Error', command=lambda: self.winch_client.set_command("CLEARERROR"))
+        disconnect_btn = tk.Button(self, text='Simulate Disconnection',
+                                   command=lambda: self.winch_client.set_command(""))
+
         cast_input = CastInput(self)
         self.add(manin_btn, stretch="always")
         self.add(manout_btn, stretch="always")
         self.add(stop_btn, stretch="always")
         self.add(cast_input, stretch="always")
         self.add(error_btn, stretch="always")
+        self.add(disconnect_btn, stretch="always")
 
 
 class Sensors(tk.PanedWindow):
@@ -86,7 +103,7 @@ class Sensors(tk.PanedWindow):
         self.add(ToggleButton(self, "DOCK", text="on", width=12), stretch="always")
         self.add(tk.Label(self, text="Line Sensor:"))
         self.add(ToggleButton(self, "LINE", text="on", width=12), stretch="always")
-        self.add(tk.Label(self, text="Slack Sensor:"))
+        self.add(tk.Label(self, text="Rotation Sensor:"))
         self.add(ToggleButton(self, "ROTATION", text="on", width=12), stretch="always")
 
 
@@ -120,13 +137,19 @@ class DebugOutput(tk.PanedWindow):
         # self.frame = tk.Frame(self)
         self.textbox = tk.Text(self, state=tk.DISABLED)
         self.add(self.textbox)
+        self.add(tk.Button(self, text="Clear Output", command = self.clear_text))
 
     def insert_text(self, text):
         self.textbox.config(state=tk.NORMAL)
-        self.textbox.insert(tk.INSERT, "\n"+text)
+        self.textbox.insert(tk.INSERT, "\n" + text)
         self.textbox.config(state=tk.DISABLED)
         self.textbox.see("end")
 
+    def clear_text(self):
+        self.textbox.config(state=tk.NORMAL)
+        self.textbox.delete("1.0",tk.END)
+        self.textbox.config(state=tk.DISABLED)
+        self.textbox.see("end")
 
 
 """"

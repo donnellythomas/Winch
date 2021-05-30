@@ -66,7 +66,7 @@ class PiController(WinchController):
         return GPIO.input(self.slack_pin) == GPIO.HIGH
 
     def is_out_of_line(self):
-        return GPIO.input(self.dock_pin) == GPIO.LOW
+        return GPIO.input(self.line_pin) == GPIO.LOW
 
     def is_docked(self):
         return GPIO.input(self.dock_pin) == GPIO.LOW

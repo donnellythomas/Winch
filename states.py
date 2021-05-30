@@ -2,6 +2,7 @@ from time import sleep
 import threading
 import traceback
 import socket
+
 # If winch is in simulation RPi cannot be imported
 try:
     import RPi.GPIO as GPIO
@@ -70,9 +71,8 @@ class InitState(State):
         command_thread = threading.Thread(target=winch.receive_commands)
         command_thread.start()
 
-        # Put winch into standby state
-        winch.queue_command("STDBY")
-        winch.do_transition(winch.state_sequence.pop(0))
+        # Start the main loop
+        winch.main_loop()
 
 
 class StdbyState(State):
@@ -101,76 +101,69 @@ class StdbyState(State):
 
     def on_entry_behavior(self, winch):
         # Run continuously
-        while True:
 
-            # Error monitoring
-            # TODO: Pull into own state?
-            if winch.slack_timer.check_time() > 20:
-                winch.error("Winch has been slack for too long")
-            if winch.direction != "" and winch.rotation_timer.check_time() > 3:
-                winch.error("Drum is not rotating")
+        # Set the command locally, commands were timing out withing the middle
+        # of this loop and raising exceptions
+        # TODO: This can possibly be changed if UDP buffer can be cleared
+        command = winch.command
+        if command is not None:
+            # When state sequence is empty then winch is officially in standby
+            try:
+                # Cast is the only command with multiple arguments and always has 4 parts
+                if len(command.split()) == 4:
+                    meters = float(command.split()[1])
+                    soak_depth = float(command.split()[2])
+                    soak_time = float(command.split()[3])
 
-            # if command sequence is empty
-            if not winch.state_sequence:
-                # Set the command locally, commands were timing out withing the middle
-                # of this loop and raising exceptions
-                # TODO: This can possibly be changed if UDP buffer can be cleared
-                command = winch.command
-                # When state sequence is empty then winch is officially in standby
-                winch.set_state("STDBY")
+                    # Ignore command if depth is negative or too deep
+                    if meters < 0 or meters > 50 or soak_depth > 50:
+                        raise Exception
+                    # If soak depth is 0 or negative default to 1.1 meters
+                    # TODO: Add to config
+                    if soak_depth <= 0:
+                        winch.soak_depth = np.interp(1.1, winch.cal_data["meters"], winch.cal_data["rotations"])
+                    else:
+                        winch.soak_depth = np.interp(soak_depth, winch.cal_data["meters"],
+                                                     winch.cal_data["rotations"])
+                    # If soak time is 0 or negative default to 60 seconds
+                    if soak_time <= 0:
+                        winch.soak_time = 60
+                    else:
+                        winch.soak_time = soak_time
 
-                if command is not None:
-                    # print(command)
-                    try:
-                        # Cast is the only command with multiple arguments and always has 4 parts
-                        if len(command.split()) == 4:
-                            meters = float(command.split()[1])
-                            soak_depth = float(command.split()[2])
-                            soak_time = float(command.split()[3])
+                    command = command.split()[0]
+                    # TODO: Create method for interpolation?
+                    winch.target_depth = np.interp(meters, winch.cal_data["meters"],
+                                                   winch.cal_data["rotations"])
+                # Add command to queue for execution on next cycle
+                winch.queue_command(command)
+            except:
+                # Print exception and ignore commands
+                traceback.print_exc()
+                print("Command not valid")
+        else:
+            winch.motor_off()
 
-                            # Ignore command if depth is negative or too deep
-                            if meters < 0 or meters > 50 or soak_depth > 50:
-                                raise Exception
-                            # If soak depth is 0 or negative default to 1.1 meters
-                            # TODO: Add to config
-                            if soak_depth <= 0:
-                                winch.soak_depth = np.interp(1.1, winch.cal_data["meters"], winch.cal_data["rotations"])
-                            else:
-                                winch.soak_depth = np.interp(soak_depth, winch.cal_data["meters"],
-                                                             winch.cal_data["rotations"])
-                            # If soak time is 0 or negative default to 60 seconds
-                            if soak_time <= 0:
-                                winch.soak_time = 60
-                            else:
-                                winch.soak_time = soak_time
 
-                            command = command.split()[0]
-                            # TODO: Create method for interpolation?
-                            winch.target_depth = np.interp(meters, winch.cal_data["meters"],
-                                                           winch.cal_data["rotations"])
-                        # Add command to queue for execution on next cycle
-                        winch.queue_command(command)
-                    except:
-                        # Print exception and ignore commands
-                        traceback.print_exc()
-                        print("Command not valid")
-            else:
-                # If state_sequence has state, transition into that state
-                winch.do_transition(winch.state_sequence[0])
-            # The idea behind this sleep is to timeout the last command
-            # TODO: This could cause problems of missing commands, change on buffer research
-            sleep(.1)
+class MonitorState(State):
+    def on_entry_behavior(self, winch):
+        pass
+        # Error monitoring
+        # TODO: Pull into own state?
+        # if winch.slack_timer.check_time() > 20:
+        #     winch.error("Winch has been slack for too long")
+        # if winch.direction != "" and winch.rotation_timer.check_time() > 3:
+        #     winch.error("Drum is not rotating")
 
 
 class CastState(State):
     """Automatically soak, downcast, and upcast to a specific depth"""
 
     def on_entry_behavior(self, winch):
-        print("Casting to %d..." % winch.target_depth)
+        winch.send_response("Casting to " + str(winch.target_depth)+"...")
         winch.queue_command("SOAK")
         winch.queue_command("DOWNCAST")
         winch.queue_command("UPCAST")
-        winch.queue_command("READDATA")
         winch.queue_command("STOP")
         # Pop off the Cast state allowing soak to begin
         winch.state_sequence.pop(0)
@@ -182,13 +175,12 @@ class ManualWinchOutState(State):
     def on_entry_behavior(self, winch):
         # If the current command is None that means MANOUT timed out winch should stop
         # This should only be occurring when connection to client is lost
-        if winch.command is None:
-            winch.stop()
 
         # Do not winch out if winch has slack and slack sensor is on
         if not winch.controller.has_slack() or not winch.slack_sensor_on:
             # Do not winch down if winch is out of line, depth is > 50, and line sensor is on
-            if not winch.line_sensor_on or (not winch.controller.is_out_of_line() and winch.depth < 417):  # 417 is 50 meters
+            if not winch.line_sensor_on or (
+                    not winch.controller.is_out_of_line() and winch.depth < 417):  # 417 is 50 meters
                 winch.down()
             else:
                 # Turns off motor when maximum depth is reached
@@ -203,8 +195,6 @@ class ManualWinchInState(State):
     def on_entry_behavior(self, winch):
         # If the current command is None that means MANIN timed out winch should stop
         # This should only be occurring when connection to client is lost
-        if winch.command is None:
-            winch.stop()
 
         # Do not winch in if winch has slack and slack sensor is on
         if not winch.controller.has_slack() or not winch.slack_sensor_on:
@@ -242,7 +232,7 @@ class SoakState(State):
         # Target soak depth reached
         if winch.depth >= winch.soak_depth:
             winch.motor_off()
-            print("Soaking...")
+            winch.send_response("Soaking...")
             # Soak
             sleep(winch.soak_time)
             winch.state_sequence.pop(0)
@@ -269,14 +259,7 @@ class UpCastState(State):
             winch.motor_off()
 
 
-class ReadDataState(State):
-    """ Read Data from CTD, Not used currently """
 
-    def on_entry_behavior(self, winch):
-        # if winch.controller.is_docked:
-        #   winch.error("Winch not docked, cannot read data")
-        print("C:", winch.conductivity, "T:", winch.temp, "D:", winch.depth)
-        winch.state_sequence.pop(0)
 
 
 class ErrorState(State):
@@ -305,6 +288,7 @@ class StopState(State):
     Stop state of winch
     Stops motor, clears state_sequence
     """
+
     def on_entry_behavior(self, winch):
         print("Stopping...")
         winch.motor_off()

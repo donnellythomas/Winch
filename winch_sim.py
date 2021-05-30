@@ -83,17 +83,6 @@ class WinchGraphic(tk.Canvas):
     def change_direction(self, direction):
         self.parent.winch_sim.direction.set(direction)
 
-    def sensor_check(self):
-        while True:
-            if self.parent.winch_sim.slack_sensor.get():
-                if self.parent.winch_sim.slack_callback is not None:
-                    self.parent.winch_sim.slack_callback(None)
-            if self.parent.winch_sim.dock_sensor.get():
-                if self.parent.winch_sim.dock_callback is not None:
-                    self.parent.winch_sim.dock_callback(None)
-            if self.parent.winch_sim.line_sensor.get():
-                if self.parent.winch_sim.line_callback is not None:
-                    self.parent.winch_sim.line_callback(None)
 
     def toggle(self, sensor):
         sensor.set(not sensor)
@@ -112,9 +101,11 @@ class InputPanel(tk.PanedWindow):
                                      command=lambda: (winch_sim.slack_sensor.set(not winch_sim.slack_sensor.get()),
                                                       winch_sim.slack_callback(None)))
         dock_toggle_btn = tk.Button(self, text="toggle dock",
-                                    command=lambda: winch_sim.dock_sensor.set(not winch_sim.dock_sensor.get()))
+                                    command=lambda: (winch_sim.dock_sensor.set(not winch_sim.dock_sensor.get()),
+                                                     winch_sim.dock_callback(None)))
         line_toggle_btn = tk.Button(self, text="toggle line",
-                                    command=lambda: winch_sim.line_sensor.set(not winch_sim.line_sensor.get()))
+                                    command=lambda: (winch_sim.line_sensor.set(not winch_sim.line_sensor.get()),
+                                                     winch_sim.line_callback(None)))
 
         self.add(up_btn)
         self.add(down_btn)
@@ -173,19 +164,23 @@ class Drum:
 
     def rotate(self):
         while True:
-            if self.parent.parent.winch_sim.direction.get() == "down":
-                self.angle += 1
-            elif self.parent.parent.winch_sim.direction.get() == "up":
-                self.angle -= 1
-            if self.angle % 360 == 0:
-                self.angle = 1
-                if self.parent.parent.winch_sim.rotation_callback is not None:
-                    self.parent.parent.winch_sim.rotation_callback(None)
+            if self.parent.parent.winch_sim.direction.get() != "stopped":
+                if self.parent.parent.winch_sim.direction.get() == "down":
+                    self.angle += 1
+                elif self.parent.parent.winch_sim.direction.get() == "up":
+                    self.angle -= 1
+                if self.angle % 360 == 0:
+                    if self.parent.parent.winch_sim.direction.get() == "down":
+                        self.angle = 1
+                    else:
+                        self.angle = -1
+                    if self.parent.parent.winch_sim.rotation_callback is not None:
+                        self.parent.parent.winch_sim.rotation_callback(None)
 
-            self.magnet_x = self.x + cos(radians(self.angle)) * self.rotation_radius
-            self.magnet_y = self.y + sin(radians(self.angle)) * self.rotation_radius
-            self.parent.coords(self.magnet, create_circle(self.magnet_x, self.magnet_y, self.magnet_radius))
-            sleep(.005)
+                self.magnet_x = self.x + cos(radians(self.angle)) * self.rotation_radius
+                self.magnet_y = self.y + sin(radians(self.angle)) * self.rotation_radius
+                self.parent.coords(self.magnet, create_circle(self.magnet_x, self.magnet_y, self.magnet_radius))
+                sleep(.005)
 
 
 def main():
