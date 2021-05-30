@@ -178,9 +178,9 @@ class Drum:
             elif self.parent.parent.winch_sim.direction.get() == "up":
                 self.angle -= 1
             if self.angle % 360 == 0:
-                if self.parent.parent.winch_sim.direction.get() != "stopped" and self.parent.parent.winch_sim.rotation_callback is not None:
-                    self.parent.parent.winch_sim.rotation_callback(None)
                 self.angle = 1
+                if self.parent.parent.winch_sim.rotation_callback is not None:
+                    self.parent.parent.winch_sim.rotation_callback(None)
 
             self.magnet_x = self.x + cos(radians(self.angle)) * self.rotation_radius
             self.magnet_y = self.y + sin(radians(self.angle)) * self.rotation_radius
