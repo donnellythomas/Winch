@@ -1,0 +1,9 @@
+{
+  "default_soak_depth" : 1.1,
+  "default_soak_time" : 60,
+  "UDP_IP": "",
+  "UDP_PORT" : 5008,
+  "UDP_timeout": 1,
+  "client_period" : 0.5,
+  "receive_command_period": 0.2
+}

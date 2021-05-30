@@ -104,7 +104,6 @@ class StdbyState(State):
 
         # Set the command locally, commands were timing out withing the middle
         # of this loop and raising exceptions
-        # TODO: This can possibly be changed if UDP buffer can be cleared
         command = winch.command
         if command is not None:
             # When state sequence is empty then winch is officially in standby
@@ -160,7 +159,7 @@ class CastState(State):
     """Automatically soak, downcast, and upcast to a specific depth"""
 
     def on_entry_behavior(self, winch):
-        winch.send_response("Casting to " + str(winch.target_depth)+"...")
+        winch.send_response("Casting to " + str(winch.target_depth) + "...")
         winch.queue_command("SOAK")
         winch.queue_command("DOWNCAST")
         winch.queue_command("UPCAST")
@@ -257,9 +256,6 @@ class UpCastState(State):
             winch.up()
         else:
             winch.motor_off()
-
-
-
 
 
 class ErrorState(State):

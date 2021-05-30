@@ -36,10 +36,6 @@ class Winch(Context):
         # Depth is measure in rotations NOT METERS
         self.depth = 0
 
-        # soak params
-        self.soak_depth = 0
-        self.soak_time = 0
-
         # Target depth that the winch is currently paying out to
         self.target_depth = 0
 
@@ -91,7 +87,8 @@ class Winch(Context):
         self.sock.bind((self.UDP_IP, self.UDP_PORT))
         # Commands received via UDP are set to timeout after a given amount of time
         # UDP commands are set to timeout to avoid from them going stale
-        self.sock.settimeout(.1)
+        # self.sock.settimeout(.1)
+        self.sock.setblocking(0)
 
     def power_on(self):
         """Start the winch - put into initialization state"""
@@ -171,12 +168,15 @@ class Winch(Context):
 
     def receive_commands(self):
         """Command receiver that is run in a separate thread so that no command is missed"""
+        command_timer = Timer()
+        client_period = 0.5
+
         while True:
             # Run continuously
             try:
                 # Receive command in bytes
                 command, self.return_address = self.sock.recvfrom(1024)  # buffer size is 1024 bytes
-
+                command_timer.reset()
                 # Decode command into string
                 self.command = command.decode()
 
@@ -206,7 +206,8 @@ class Winch(Context):
                     self.command = None
             # socket timeout raises exception - in that case set command to none
             except:
-                self.command = None
+                if command_timer.check_time() > client_period:
+                    self.command = None
                 # print("Command timeout")
 
     def change_depth(self, new_depth):
@@ -264,7 +265,7 @@ class Winch(Context):
         else:
             # TODO: Error state here. Winch should never be moving unless up or down is called setting direction
             print("ERROR: Winch moving without known direction")
-        self.send_response(("Depth: "+str(self.depth)+", Target: "+str(self.target_depth)))
+        self.send_response(("Depth: " + str(self.depth) + ", Target: " + str(self.target_depth)))
 
     def meters_to_rotations(self, meters):
         return np.interp(meters, self.cal_data["meters"], winch.cal_data["rotations"])

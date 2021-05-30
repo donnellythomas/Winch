@@ -5,6 +5,7 @@ from time import sleep
 import sys
 import traceback
 
+
 class WinchClient:
     def __init__(self):
         self.root = tk.Tk()
@@ -13,7 +14,7 @@ class WinchClient:
         self.interface = Interface(self, bd=15, sashpad=5)
 
         self.interface.pack(expand=1, fill="both")
-
+        self.client_period = 0.5
         # UDP Config
         self.UDP_IP = "127.0.0.1"
         if len(sys.argv) > 1:
@@ -23,25 +24,24 @@ class WinchClient:
         print("UDP target port: %s" % self.UDP_PORT)
         self.sock = socket.socket(socket.AF_INET,  # Internet
                                   socket.SOCK_DGRAM)  # UDP
+        self.sock.setblocking(0)
         # self.sock.settimeout(0.04)
         command_thread = threading.Thread(target=self.send_command)
         command_thread.start()
-        response_thread = threading.Thread(target=self.receive_command)
-        response_thread.start()
+
         self.root.mainloop()
 
-    def receive_command(self):
-        while True:
-            command, addr = self.sock.recvfrom(1024)
-            # Decode command into string
-            command = command.decode()
-            if command is not None:
-                self.interface.debug_output.insert_text(command)
-            sleep(0.05)
     def send_command(self):
         """Sends the command over UDP, This method is constantly running in a separate thread"""
         while True:
-
+            # check for received output
+            try:
+                command, addr = self.sock.recvfrom(1024)
+                # Decode command into string
+                command = command.decode()
+                if command is not None:
+                    self.interface.debug_output.insert_text(command)
+            except: pass
             # MANIN and MANOUT constantly provide input to winch
             if self.current_command in ("MANIN", "MANOUT"):
                 print("Current Command:", self.current_command)
@@ -52,7 +52,7 @@ class WinchClient:
                 self.sock.sendto(str.encode(self.current_command), (self.UDP_IP, self.UDP_PORT))
                 self.current_command = ""
 
-            sleep(.05)
+            sleep(self.client_period)
 
     def set_command(self, command):
         """Change the current command"""
@@ -137,7 +137,7 @@ class DebugOutput(tk.PanedWindow):
         # self.frame = tk.Frame(self)
         self.textbox = tk.Text(self, state=tk.DISABLED)
         self.add(self.textbox)
-        self.add(tk.Button(self, text="Clear Output", command = self.clear_text))
+        self.add(tk.Button(self, text="Clear Output", command=self.clear_text))
 
     def insert_text(self, text):
         self.textbox.config(state=tk.NORMAL)
@@ -147,7 +147,7 @@ class DebugOutput(tk.PanedWindow):
 
     def clear_text(self):
         self.textbox.config(state=tk.NORMAL)
-        self.textbox.delete("1.0",tk.END)
+        self.textbox.delete("1.0", tk.END)
         self.textbox.config(state=tk.DISABLED)
         self.textbox.see("end")
 
