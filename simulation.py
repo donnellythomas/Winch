@@ -1,4 +1,7 @@
-import Tkinter as tk
+try:
+    import tkinter as tk
+except ImportError:
+    import Tkinter as tk
 from math import cos, sin, radians
 from time import sleep
 import winch as w

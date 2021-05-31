@@ -1,6 +1,10 @@
 import socket
 import threading
-import Tkinter as tk
+
+try:
+    import Tkinter as tk
+except ImportError:
+    import tkinter as tk
 from time import sleep
 import sys
 
