@@ -5,8 +5,9 @@ class Timer:
     def __init__(self):
         self._start_time = None
         
-    def start(self):
-        self._start_time = time()
+    def start(self): # Can only be started once until stopped
+        if self._start_time is None:
+            self._start_time = time()
         
     def stop(self):
         if self._start_time is None:

@@ -1,29 +1,24 @@
-# Allow for program to be run outside of a raspberry pi
-try:
-    import RPi.GPIO as GPIO
-
-    sim = False
-except:
-    sim = True
-
 from context import Context
 from states import *
 from timer import Timer
-from winch_controller import PiController
+from controller import PiController
 
 
 class Winch(Context):
-    def __init__(self, context_name, controller, cal_file='cal_data.txt'):
+    def __init__(self, context_name, controller, cal_file='cal_data.txt', config_file='config.json'):
         """
         Initialization for Winch parameters (not to be confused with initialization state)
         Arguments:
+            controller -- hardware controller (can be PiController for raspberry pi or WinchSim for simulation
             context_name -- name of the winch
             cal_file -- drum rotation calibration file for interpolation
+            config_file -- configuration file for all parameters of winch
         """
         Context.__init__(self, context_name)
 
-        # Controller for winch (PiController for raspberry pi or SimController for sim
+        # Controller for winch hardware or simulation
         self.controller = controller
+
         # set callbacks for controller
         self.controller.set_slack_callback(self.slack_callback)
         self.controller.set_dock_callback(self.dock_callback)
@@ -33,33 +28,32 @@ class Winch(Context):
         # Sequence of states that are to be executed
         self.state_sequence = []
 
-        # Depth is measure in rotations NOT METERS
-        self.depth = 0
-
-        # Target depth that the winch is currently paying out to
-        self.target_depth = 0
-
         # Current command that has been received by the client
         self.command = None
 
-        # Current direction winch is moving, can be UP or DOWN or empty string
+        # Depth is measure in rotations NOT METERS
+        self.depth = 0
+
+        # Current direction winch is moving, can be "up" or "down" or empty string ""
         self.direction = ""
 
         # Current state of the winch
         self.is_stopped = False
         self.has_error = False
-        self.error_message = ""
+        self.error_enable = False
 
         # Flags for enabling and disabling sensors for manual operation
-        self.slack_sensor_on = True
-        self.dock_sensor_on = True
-        self.line_sensor_on = True
+        self.slack_sensor_enable = True
+        self.dock_sensor_enable = True
+        self.line_sensor_enable = True
 
-        # Timers used for error checking
+        # Timers for errors and waits
         self.slack_timer = Timer()
         self.rotation_timer = Timer()
+        self.soak_timer = Timer()
 
-        # Setup for distance interpolation - rotations of drum to meters
+        # Setup for configuration and calibration
+        self.config_file = config_file
         self.cal_file = cal_file
         self.cal_data = {"rotations": [], "meters": []}
 
@@ -76,30 +70,33 @@ class Winch(Context):
         self.add_state(SoakState("SOAK"))
         self.add_state(MonitorState("MONITOR"))
 
-        # Setup for UDP
-        # TODO: pull into config file
-        self.UDP_IP = ""
-        self.UDP_PORT = 5008
+        # Declaration of variables set in InitState
+        # UDP parameters
+        self.UDP_IP = None
+        self.UDP_PORT = None
         self.return_address = None
-        # UDP socket setup
-        self.sock = socket.socket(socket.AF_INET,  # Internet
-                                  socket.SOCK_DGRAM)  # UDP
-        self.sock.bind((self.UDP_IP, self.UDP_PORT))
-        # Commands received via UDP are set to timeout after a given amount of time
-        # UDP commands are set to timeout to avoid from them going stale
-        # self.sock.settimeout(.1)
-        self.sock.setblocking(0)
+        self.sock = None
+
+        self.default_soak_depth = None  # Meters
+        self.default_soak_time = None  # Seconds
+        self.client_period = None  # Period that client sends commands - Seconds
+        self.main_loop_period = None  # Period of the main event loop - Seconds
+        self.slack_timeout = None  # Time until error - Seconds
+        self.illegal_speed_fast = None  # time for drum spinning too fast - Seconds
+        self.illegal_speed_slow = None  # time for drum spinning too slow - Seconds
+        self.calibration_tolerance = None  # acceptable distance from dock when docked - Meters
+        self.maximum_depth = None  # Meters
 
     def power_on(self):
         """Start the winch - put into initialization state"""
         # Set state of winch to initialization start
         self.set_state("INIT")
         # Execute entry behavior of the current state
-        self.entry_behavior(self.get_state())
+        self.entry_behavior(self.get_state(), [])
 
-    def queue_command(self, command):
+    def queue_command(self, command, *args):
         """Add command for state change into state sequence queue"""
-        self.state_sequence.append(command)
+        self.state_sequence.append((command, args))
 
     def down(self):
         """
@@ -108,6 +105,8 @@ class Winch(Context):
         """
         if self.direction != "down":
             self.send_response("Going down...")
+            self.error_enable = False  # Don't throw speed error when switching directions
+
         self.direction = "down"
         self.controller.down()
 
@@ -119,8 +118,9 @@ class Winch(Context):
         # print("Going up...")
 
         if self.direction != "up":
+            self.error_enable = False  # Don't throw speed error when switching directions
             self.send_response("Going up...")
-        # Note this cannot go in that if statement becuase if winch goes slack
+        # Note this cannot go in that if statement because if winch goes slack
         # it is not moving with a current direction. It needs to be able to get going again
         self.direction = "up"
         self.controller.up()
@@ -129,6 +129,8 @@ class Winch(Context):
         """Turn winch motor off"""
         if self.direction != "":
             self.send_response("Motors off...")
+            self.error_enable = False
+
         # Remove current direction
         self.direction = ""
 
@@ -138,7 +140,7 @@ class Winch(Context):
 
     def stop(self):
         """
-        Put the winch into stop state.si
+        Put the winch into stop state.
         STOP command is added to the front of the state_sequence so it is the next state to execute
         Within StopState state_sequence is cleared
 
@@ -147,7 +149,7 @@ class Winch(Context):
         different threads
         """
         self.send_response("Stopping...")
-        self.state_sequence.insert(0, "STOP")
+        self.state_sequence.insert(0, ("STOP", []))
 
     def report_position(self):
         """Print the current position of the winch"""
@@ -163,13 +165,28 @@ class Winch(Context):
         receive_command which is called in a different thread causing winch to be in multiple states at once in
         different threads
         """
-        self.error_message = message
-        self.state_sequence.insert(0, "ERROR")
+        # Error state is looped into until the error is cleared, only handle following once
+        self.send_response("ERROR:" + message)
+        self.send_response("Waiting for error to be cleared...")
+        # Clear state_sequence of all remaining states
+        self.state_sequence = []
+        self.state_sequence.insert(0, ("ERROR", []))
+        self.has_error = True
 
     def receive_commands(self):
-        """Command receiver that is run in a separate thread so that no command is missed"""
+        """
+        Command receiver that is run in a separate thread so that no command is missed
+        Difficulties of receiving commands:
+        The socket recvfrom method is usually blocking, this means that there was no way to tell if the client had
+        disconnected in the middle of sending MANIN or MANOUT commands.
+        First attempt at fixing this used socket.settimeout to set a timeout for the socket but this caused issues
+        with potientially missing commands if the eventloop had not looped all the way around before the command
+        timed out.
+        The current solution uses the known period that the client should be sending commands. The socket is set to
+        nonblocking, and each loop of this method checks how long it has been since the last command. If it is
+        longer than the client period then that command has timed out.
+        """
         command_timer = Timer()
-        client_period = 0.5
 
         while True:
             # Run continuously
@@ -184,33 +201,35 @@ class Winch(Context):
                 if self.command == "STOP":
                     self.stop()
                 if self.command == "SLACKOFF":
-                    self.slack_sensor_on = False
+                    self.slack_sensor_enable = False
                     self.command = None
                 if self.command == "SLACKON":
-                    self.slack_sensor_on = True
+                    self.slack_sensor_enable = True
                     self.command = None
                 if self.command == "DOCKOFF":
-                    self.dock_sensor_on = False
+                    self.dock_sensor_enable = False
                     self.command = None
                 if self.command == "DOCKON":
-                    self.dock_sensor_on = True
+                    self.dock_sensor_enable = True
                     self.command = None
                 if self.command == "LINEOFF":
-                    self.line_sensor_on = False
+                    self.line_sensor_enable = False
                     self.command = None
                 if self.command == "LINEON":
-                    self.line_sensor_on = True
+                    self.line_sensor_enable = True
                     self.command = None
                 if self.command == "CLEARERROR":
+                    self.send_response("Error Cleared")
                     self.has_error = False
                     self.command = None
-            # socket timeout raises exception - in that case set command to none
+            # recvfrom throws error when blocking is off and there is nothing to receive
             except:
-                if command_timer.check_time() > client_period:
+                # If there has not been a command within the period the client is sending them, set to null
+                if command_timer.check_time() > self.client_period:
                     self.command = None
-                # print("Command timeout")
 
     def change_depth(self, new_depth):
+        """Change the current depth"""
         self.depth = new_depth
         # self.send_response(str(self.depth))
 
@@ -230,8 +249,12 @@ class Winch(Context):
         """Docked callback notifying when winch is in its docked state"""
         if self.controller.is_docked():
             # In docked position - set depth to 0, put winch into stopped state
-            # TODO: Error when reaching docked position when depth is greater than a meter out
             self.send_response("Docked")
+
+            # Error if the winch thinks it is further than a specified distance out
+            if self.depth > self.meters_to_rotations(self.calibration_tolerance):
+                self.error("Winch Calibration off (was not within a meter of actual depth)")
+
             self.change_depth(0)
             self.stop()
 
@@ -248,12 +271,13 @@ class Winch(Context):
 
     def rotation_callback(self, channel):
         """Rotational callback for drum of winch - called every rotation"""
-        # TODO: Add into config file
         # Check rotation timer and check when the drum is rotating too fast
-        # if 0 < self.rotation_timer.check_time() < 0.5:
-        #     self.rotation_timer.stop()
-        #     self.error("Drum rotating too fast")
-
+        if 0 < self.rotation_timer.check_time() < self.illegal_speed_fast:
+            if self.error_enable:
+                self.rotation_timer.stop()
+                self.error("Drum rotating too fast")
+            else:
+                self.error_enable = True
         # Reset timer on each rotation
         self.rotation_timer.reset()
 
@@ -263,41 +287,40 @@ class Winch(Context):
         elif self.direction == "down":
             self.change_depth(self.depth + 1)
         else:
-            # TODO: Error state here. Winch should never be moving unless up or down is called setting direction
-            print("ERROR: Winch moving without known direction")
-        self.send_response(("Depth: " + str(self.depth) + ", Target: " + str(self.target_depth)))
+            self.error("Winch moving without known direction")
+        self.send_response("Rotations: " + str(self.depth) + ", Depth: " + str(self.rotations_to_meters(self.depth)))
 
     def meters_to_rotations(self, meters):
-        return np.interp(meters, self.cal_data["meters"], winch.cal_data["rotations"])
+        return np.interp(meters, self.cal_data["meters"], self.cal_data["rotations"])
 
     def rotations_to_meters(self, rotations):
-        return np.interp(rotations, self.cal_data["rotations"], winch.cal_data["meters"])
+        return np.interp(rotations, self.cal_data["rotations"], self.cal_data["meters"])
 
     def send_response(self, message):
+        """Send message back to client. Only sends to last client it received commands from"""
         print(message)
         if self.return_address is not None:
             self.sock.sendto(str.encode(message), self.return_address)
 
     def main_loop(self):
+
         while True:
             # if the has an error, transition to error state
             if self.has_error:
-                self.do_transition("ERROR")
+                self.do_transition(("ERROR", []))
             else:
                 # if winch is not in error state, monitors winches state to ensure it does not run away
-                self.do_transition("MONITOR")
+                self.do_transition(("MONITOR", []))
 
                 # if the state_sequence is empty then put the winch into standby and accept commands
                 if not self.state_sequence:
-                    self.do_transition("STDBY")
+                    self.do_transition(("STDBY", []))
 
                 # if there is a state on the winch, transition to that state. States are to pop themselves
                 else:
                     self.do_transition(self.state_sequence[0])
 
-            # The idea behind this sleep is to timeout the last command
-            # TODO: This could cause problems of missing commands, change on buffer research (maybe close and open socket
-            sleep(.1)
+            sleep(self.main_loop_period)
 
 
 if __name__ == "__main__":

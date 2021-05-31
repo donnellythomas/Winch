@@ -1,6 +1,8 @@
 try:
     import RPi.GPIO as GPIO
-except: pass
+except:
+    pass
+
 
 class WinchController:
     def __init__(self):

@@ -3,7 +3,7 @@ from math import cos, sin, radians
 from time import sleep
 import winch as w
 import threading
-from winch_controller import WinchController
+from controller import WinchController
 
 
 class WinchSim(WinchController):
@@ -84,19 +84,13 @@ class WinchGraphic(tk.Canvas):
         self.parent.winch_sim.direction.set(direction)
 
 
-    def toggle(self, sensor):
-        sensor.set(not sensor)
-
-
 class InputPanel(tk.PanedWindow):
     def __init__(self, parent, *args, **kw):
         tk.PanedWindow.__init__(self, *args, **kw)
         self.winch_graphic = parent.winch_graphic
         self.parent = parent
         winch_sim = parent.winch_sim
-        up_btn = tk.Button(self, text="force up", command=lambda: self.winch_graphic.change_direction("up"))
-        down_btn = tk.Button(self, text="force down", command=lambda: self.winch_graphic.change_direction("down"))
-        stop_btn = tk.Button(self, text="force stop", command=lambda: self.winch_graphic.change_direction("stop"))
+        stop_btn = tk.Button(self, text="force stop", command=lambda: self.winch_graphic.change_direction("stopped"))
         slack_toggle_btn = tk.Button(self, text="toggle slack",
                                      command=lambda: (winch_sim.slack_sensor.set(not winch_sim.slack_sensor.get()),
                                                       winch_sim.slack_callback(None)))
@@ -106,13 +100,14 @@ class InputPanel(tk.PanedWindow):
         line_toggle_btn = tk.Button(self, text="toggle line",
                                     command=lambda: (winch_sim.line_sensor.set(not winch_sim.line_sensor.get()),
                                                      winch_sim.line_callback(None)))
+        rotation_callback_btn = tk.Button(self, text="force rotation callback",
+                                          command=lambda: winch_sim.rotation_callback(None))
 
-        self.add(up_btn)
-        self.add(down_btn)
         self.add(stop_btn)
         self.add(slack_toggle_btn)
         self.add(dock_toggle_btn)
         self.add(line_toggle_btn)
+        self.add(rotation_callback_btn)
 
 
 class StatusPanel(tk.PanedWindow):
@@ -188,10 +183,13 @@ def main():
     window = Window(root)
     winch = w.Winch("Simulation", controller=window.interface.winch_sim)
     winch_thread = threading.Thread(target=winch.power_on)
+    winch_thread.daemon = True
     winch_thread.start()
 
     rotation_thread = threading.Thread(target=window.interface.winch_graphic.drum.rotate)
     window.pack(side="top", fill="both", expand=True)
+    rotation_thread.daemon = True
+
     rotation_thread.start()
     root.mainloop()
 

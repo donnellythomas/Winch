@@ -9,6 +9,7 @@ try:
 except:
     pass
 import numpy as np
+import json
 
 
 class State:
@@ -27,7 +28,7 @@ class State:
         """
         return self.__name
 
-    def on_entry_behavior(self, winch):
+    def on_entry_behavior(self, winch, *args):
         """
         Entry behavior of the state
         :param winch: Context
@@ -43,7 +44,28 @@ class InitState(State):
     setting up GPIO, checking state of sensors, and reading configuration files
     """
 
-    def on_entry_behavior(self, winch):
+    def on_entry_behavior(self, winch, *args):
+        with open(winch.config_file) as config:
+            config = json.load(config)
+        winch.UDP_IP = config["UDP_IP"]
+        winch.UDP_PORT = config["UDP_PORT"]
+        winch.default_soak_depth = config["default_soak_depth"]
+        winch.default_soak_time = config["default_soak_time"]
+        winch.client_period = config["client_period"]
+        winch.main_loop_period = config["main_loop_period"]
+        winch.slack_timeout = config["slack_timeout"]
+        winch.illegal_speed_fast = config["illegal_speed_fast"]
+        winch.illegal_speed_slow = config["illegal_speed_slow"]
+        winch.calibration_tolerance = config["calibration_tolerance"]
+        winch.maximum_depth = config["maximum_depth"]
+        # UDP socket setup
+        winch.sock = socket.socket(socket.AF_INET,  # Internet
+                                   socket.SOCK_DGRAM)  # UDP
+        winch.sock.bind((winch.UDP_IP, winch.UDP_PORT))
+        # Commands received via UDP are set to timeout after a given amount of time
+        # UDP commands are set to timeout to avoid from them going stale
+        winch.sock.setblocking(False)
+
         # Set all callbacks
         winch.controller.set_slack_callback(winch.slack_callback)
         winch.controller.set_dock_callback(winch.dock_callback)
@@ -51,9 +73,9 @@ class InitState(State):
         winch.controller.set_rotation_callback(winch.rotation_callback)
 
         # Activate all sensors
-        winch.dock_sensor_on = True
-        winch.line_sensor_on = True
-        winch.slack_sensor_on = True
+        winch.dock_sensor_enable = True
+        winch.line_sensor_enable = True
+        winch.slack_sensor_enable = True
 
         # Read configuration file for meter to rotation interpolation
         with file(winch.cal_file) as f:
@@ -69,6 +91,7 @@ class InitState(State):
 
         # Start the thread for receiving commands
         command_thread = threading.Thread(target=winch.receive_commands)
+        command_thread.daemon = True
         command_thread.start()
 
         # Start the main loop
@@ -99,7 +122,7 @@ class StdbyState(State):
     implementation problem on my end though I believe.
     """
 
-    def on_entry_behavior(self, winch):
+    def on_entry_behavior(self, winch, *args):
         # Run continuously
 
         # Set the command locally, commands were timing out withing the middle
@@ -115,27 +138,30 @@ class StdbyState(State):
                     soak_time = float(command.split()[3])
 
                     # Ignore command if depth is negative or too deep
-                    if meters < 0 or meters > 50 or soak_depth > 50:
+                    if meters < 0 or meters > winch.maximum_depth or soak_depth < 0:
                         raise Exception
-                    # If soak depth is 0 or negative default to 1.1 meters
+                    # If negative default to 1.1 meters
                     # TODO: Add to config
-                    if soak_depth <= 0:
-                        winch.soak_depth = np.interp(1.1, winch.cal_data["meters"], winch.cal_data["rotations"])
+                    if soak_depth < 0:
+                        soak_depth = np.interp(winch.default_soak_depth, winch.cal_data["meters"],
+                                               winch.cal_data["rotations"])
                     else:
-                        winch.soak_depth = np.interp(soak_depth, winch.cal_data["meters"],
-                                                     winch.cal_data["rotations"])
-                    # If soak time is 0 or negative default to 60 seconds
-                    if soak_time <= 0:
-                        winch.soak_time = 60
+                        soak_depth = np.interp(soak_depth, winch.cal_data["meters"],
+                                               winch.cal_data["rotations"])
+                    # If negative default to 60 seconds
+                    if soak_time < 0:
+                        soak_time = winch.default_soak_time
                     else:
-                        winch.soak_time = soak_time
+                        soak_time = soak_time
 
                     command = command.split()[0]
                     # TODO: Create method for interpolation?
-                    winch.target_depth = np.interp(meters, winch.cal_data["meters"],
-                                                   winch.cal_data["rotations"])
-                # Add command to queue for execution on next cycle
-                winch.queue_command(command)
+                    target_depth = np.interp(meters, winch.cal_data["meters"],
+                                             winch.cal_data["rotations"])
+                    winch.queue_command(command, target_depth, soak_depth, soak_time)
+                else:
+                    # Add command to queue for execution on next cycle
+                    winch.queue_command(command)
             except:
                 # Print exception and ignore commands
                 traceback.print_exc()
@@ -145,23 +171,22 @@ class StdbyState(State):
 
 
 class MonitorState(State):
-    def on_entry_behavior(self, winch):
+    def on_entry_behavior(self, winch, *args):
         pass
         # Error monitoring
-        # TODO: Pull into own state?
-        # if winch.slack_timer.check_time() > 20:
-        #     winch.error("Winch has been slack for too long")
-        # if winch.direction != "" and winch.rotation_timer.check_time() > 3:
-        #     winch.error("Drum is not rotating")
+        if winch.slack_timer.check_time() > winch.slack_timeout:
+            winch.error("Winch has been slack for too long")
+        if winch.direction != "" and winch.rotation_timer.check_time() > winch.illegal_speed_slow:
+            winch.error("Drum is not rotating")
 
 
 class CastState(State):
     """Automatically soak, downcast, and upcast to a specific depth"""
 
-    def on_entry_behavior(self, winch):
-        winch.send_response("Casting to " + str(winch.target_depth) + "...")
-        winch.queue_command("SOAK")
-        winch.queue_command("DOWNCAST")
+    def on_entry_behavior(self, winch, *args):
+        winch.send_response("Casting to " + str(args[0]) + "...")
+        winch.queue_command("SOAK", args[1], args[2])
+        winch.queue_command("DOWNCAST", args[0])
         winch.queue_command("UPCAST")
         winch.queue_command("STOP")
         # Pop off the Cast state allowing soak to begin
@@ -171,15 +196,16 @@ class CastState(State):
 class ManualWinchOutState(State):
     """Manually winch in - state requires continuous command input so is popped every time"""
 
-    def on_entry_behavior(self, winch):
+    def on_entry_behavior(self, winch, *args):
         # If the current command is None that means MANOUT timed out winch should stop
         # This should only be occurring when connection to client is lost
 
         # Do not winch out if winch has slack and slack sensor is on
-        if not winch.controller.has_slack() or not winch.slack_sensor_on:
+        if not winch.controller.has_slack() or not winch.slack_sensor_enable:
             # Do not winch down if winch is out of line, depth is > 50, and line sensor is on
-            if not winch.line_sensor_on or (
-                    not winch.controller.is_out_of_line() and winch.depth < 417):  # 417 is 50 meters
+            if not winch.line_sensor_enable or (
+                    not winch.controller.is_out_of_line() and (
+                    winch.depth < winch.meters_to_rotations(winch.maximum_depth))):
                 winch.down()
             else:
                 # Turns off motor when maximum depth is reached
@@ -191,14 +217,14 @@ class ManualWinchOutState(State):
 class ManualWinchInState(State):
     """Manually winch out - state requires continuous command input so is popped every time"""
 
-    def on_entry_behavior(self, winch):
+    def on_entry_behavior(self, winch, *args):
         # If the current command is None that means MANIN timed out winch should stop
         # This should only be occurring when connection to client is lost
 
         # Do not winch in if winch has slack and slack sensor is on
-        if not winch.controller.has_slack() or not winch.slack_sensor_on:
+        if not winch.controller.has_slack() or not winch.slack_sensor_enable:
             # Do not winch down if winch is docked, depth is > 0, and dock sensor is on
-            if not winch.dock_sensor_on or (not winch.controller.is_docked() and winch.depth > 0):
+            if not winch.dock_sensor_enable or (not winch.controller.is_docked() and winch.depth > 0):
                 winch.up()
             else:
                 # Turns off motor when depth is < 0
@@ -210,9 +236,10 @@ class ManualWinchInState(State):
 class DownCastState(State):
     """ Downcast while depth is less than target depth """
 
-    def on_entry_behavior(self, winch):
+    def on_entry_behavior(self, winch, *args):
         # Target depth reached
-        if winch.depth >= winch.target_depth:
+        target_depth = args[0]
+        if winch.depth >= target_depth:
             winch.motor_off()
             winch.state_sequence.pop(0)
             return
@@ -227,14 +254,19 @@ class DownCastState(State):
 class SoakState(State):
     """ Soak CTD at specified soak depth for specified soak time """
 
-    def on_entry_behavior(self, winch):
+    def on_entry_behavior(self, winch, *args):
         # Target soak depth reached
-        if winch.depth >= winch.soak_depth:
+        soak_depth = args[0]
+        soak_time = args[1]
+        if winch.depth >= soak_depth:
             winch.motor_off()
-            winch.send_response("Soaking...")
+            if winch.soak_timer.check_time() == 0:  # timer hasn't started yet
+                winch.send_response("Soaking...")
+            winch.soak_timer.start()
             # Soak
-            sleep(winch.soak_time)
-            winch.state_sequence.pop(0)
+            if soak_time < winch.soak_timer.check_time():
+                winch.soak_timer.stop()
+                winch.state_sequence.pop(0)
             return
 
         if not winch.controller.has_slack() and not winch.controller.is_out_of_line():
@@ -246,7 +278,7 @@ class SoakState(State):
 class UpCastState(State):
     """ Upcast while depth is greater than 0 """
 
-    def on_entry_behavior(self, winch):
+    def on_entry_behavior(self, winch, *args):
         # print("Going up to 0...")
 
         # Dock reached
@@ -264,19 +296,13 @@ class ErrorState(State):
     Error message is printed and winch is kept in error state until error is cleared by client
     """
 
-    def on_entry_behavior(self, winch):
+    def on_entry_behavior(self, winch, *args):
         # Motors are turned off, error is flagged, state_sequence is cleared
         winch.motor_off()
-        winch.has_error = True
-        command = None
-        winch.state_sequence = []
-        print("ERROR:" + winch.error_message)
-        winch.error_message = ""
-        # Holds in error state until cleared
-        while winch.has_error:
-            print("Waiting for error to be cleared")
-            sleep(1)
-            pass
+        if not winch.has_error:
+            winch.rotation_timer.stop()
+            winch.slack_timer.stop()
+            winch.state_sequence.pop(0)
 
 
 class StopState(State):
@@ -285,8 +311,8 @@ class StopState(State):
     Stops motor, clears state_sequence
     """
 
-    def on_entry_behavior(self, winch):
+    def on_entry_behavior(self, winch, *args):
         print("Stopping...")
         winch.motor_off()
         winch.state_sequence = []
-        command = None
+        winch.command = None

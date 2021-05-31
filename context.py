@@ -57,19 +57,20 @@ class Context:
         :return:
         """
         current = self.__currentState.get_name()
-        if msg in self.__states:
+        if msg[0] in self.__states:
             # print("Transition to ".format(msg))
-            self.set_state(msg)
-            self.entry_behavior(self.__states[msg])
+            self.set_state(msg[0])
+            self.entry_behavior(self.__states[msg[0]], *msg[1])
         else:
-            print("Error: Invalid State: {}".format(msg))
+            print("Error: Invalid State: {}".format(msg[0]))
             self.entry_behavior(self.__states[current])
 
-    def entry_behavior(self, to_state):
+    def entry_behavior(self, to_state, *args):
         """
+        :param args:
         :param to_state: State - State being called
         :return:
         """
         if isinstance(to_state, State):
-            to_state.on_entry_behavior(self)
+            to_state.on_entry_behavior(self, *args)
 

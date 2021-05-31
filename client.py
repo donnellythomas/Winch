@@ -3,7 +3,6 @@ import threading
 import Tkinter as tk
 from time import sleep
 import sys
-import traceback
 
 
 class WinchClient:
@@ -25,8 +24,8 @@ class WinchClient:
         self.sock = socket.socket(socket.AF_INET,  # Internet
                                   socket.SOCK_DGRAM)  # UDP
         self.sock.setblocking(0)
-        # self.sock.settimeout(0.04)
         command_thread = threading.Thread(target=self.send_command)
+        command_thread.daemon = True
         command_thread.start()
 
         self.root.mainloop()
@@ -170,19 +169,19 @@ class ToggleButton(tk.Button):
         self.parent = parent
         self.command = command
         self.state = "on"
-        self.config(text='on', bg="green", activebackground="green")
+        self.config(text='on', bg="green", activebackground="lime green")
 
     def toggle(self):
         if self.state == "on":
             self.parent.winch_client.set_command(self.command + "OFF")
             self.config(text='off')
-            self.config(text='off', bg="firebrick3", activebackground="firebrick3")
+            self.config(text='off', bg="firebrick3", activebackground="red")
 
             self.state = "off"
 
         else:
             self.parent.winch_client.set_command(self.command + "ON")
-            self.config(text='on', bg="green", activebackground="green")
+            self.config(text='on', bg="green", activebackground="lime green")
             self.state = "on"
 
 

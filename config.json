@@ -1,0 +1,13 @@
+{
+  "default_soak_depth" : 1.1,
+  "default_soak_time" : 60,
+  "UDP_IP": "",
+  "UDP_PORT" : 5008,
+  "client_period" : 1.0,
+  "main_loop_period": 0.5,
+  "slack_timeout" : 20,
+  "illegal_speed_fast": 0.5,
+  "illegal_speed_slow" : 3,
+  "calibration_tolerance": 1,
+  "maximum_depth" : 50
+}
