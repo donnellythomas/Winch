@@ -4,6 +4,19 @@ import Tkinter as tk
 from time import sleep
 import sys
 
+""""
+UDP Instructions 
+Current commands: 
+MANIN, MANOUT, SLACKON, SLACKOFF, DOCKON, DOCKOFF, LINEON, LINEOFF, STOP, CLEARERROR
+
+MANIN and MANOUT are the only commands that require continuous UDP output. This is so winch does not run wild if client
+disconnects
+
+All other commands only need to be sent once
+
+Ensure period MANIN and MANOUT is sent is properly set in the winch config file
+"""
+
 
 class WinchClient:
     def __init__(self):
@@ -15,7 +28,7 @@ class WinchClient:
         self.interface.pack(expand=1, fill="both")
         self.client_period = 0.5
         # UDP Config
-        self.UDP_IP = "127.0.0.1"
+        self.UDP_IP = "192.168.100.108"  # For testing locally 127.0.0.1
         if len(sys.argv) > 1:
             self.UDP_IP = sys.argv[1]
         self.UDP_PORT = 5008
@@ -40,7 +53,8 @@ class WinchClient:
                 command = command.decode()
                 if command is not None:
                     self.interface.debug_output.insert_text(command)
-            except: pass
+            except:
+                pass
             # MANIN and MANOUT constantly provide input to winch
             if self.current_command in ("MANIN", "MANOUT"):
                 print("Current Command:", self.current_command)
@@ -64,7 +78,7 @@ class Interface(tk.PanedWindow):
         self.parent = parent
         self.controls = Controls(self, orient=tk.VERTICAL, relief=tk.RAISED, bd=5)
         self.sensors = Sensors(self, orient=tk.VERTICAL, relief=tk.RAISED, bd=5)
-        self.debug_output = DebugOutput(self, orient=tk.VERTICAL, relief=tk.RAISED, width=500, bd=5)
+        self.debug_output = DebugOutput(self, orient=tk.VERTICAL, relief=tk.RAISED, width=750, bd=5)
         self.add(self.controls, stretch="always")
         self.add(self.sensors, stretch="always")
         self.add(self.debug_output, stretch="always")
@@ -102,8 +116,6 @@ class Sensors(tk.PanedWindow):
         self.add(ToggleButton(self, "DOCK", text="on", width=12), stretch="always")
         self.add(tk.Label(self, text="Line Sensor:"))
         self.add(ToggleButton(self, "LINE", text="on", width=12), stretch="always")
-        self.add(tk.Label(self, text="Rotation Sensor:"))
-        self.add(ToggleButton(self, "ROTATION", text="on", width=12), stretch="always")
 
 
 class CastInput(tk.Frame):
@@ -149,18 +161,6 @@ class DebugOutput(tk.PanedWindow):
         self.textbox.delete("1.0", tk.END)
         self.textbox.config(state=tk.DISABLED)
         self.textbox.see("end")
-
-
-""""
-UDP Instructions 
-Current commands: 
-MANIN, MANOUT, SLACKON, SLACKOFF, DOCKON, DOCKOFF, LINEON, LINEOFF, STOP, CLEARERROR, READDATA
-
-MANIN and MANOUT are the only commands that require continuous UDP output. This is so winch does not run wild if client
-disconnects
-
-All other commands only need to be sent once
-"""
 
 
 class ToggleButton(tk.Button):

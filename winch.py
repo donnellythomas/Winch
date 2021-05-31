@@ -303,16 +303,28 @@ class Winch(Context):
             self.sock.sendto(str.encode(message), self.return_address)
 
     def main_loop(self):
-
+        """
+        This is the main event loop
+        This event loop is slightly changed from the original model.
+        First, all states requested are put into the state_sequence. The state that is in the front
+        of the state sequence is the one that is running currently or is the next to run. Deviating from the
+        original design, states pop themselves off the state sequence. This is so the event loop can be running
+        continuously in order to determine if any errors have occurred or STOP was received at any time. This way,
+        error or stop states can just add themselves to the front of the state_sequence and they will be run on the
+        next event loop.
+        Using the event loop like this allows for a monitoring state. This is used to determine errors such as the winch
+        not moving, and if there has been slack for too long.
+        """
         while True:
             # if the has an error, transition to error state
+            # Always go to error state until error has been cleared
             if self.has_error:
                 self.do_transition(("ERROR", []))
             else:
-                # if winch is not in error state, monitors winches state to ensure it does not run away
+                # if winch is not in error state, monitors winches state check for errors
                 self.do_transition(("MONITOR", []))
 
-                # if the state_sequence is empty then put the winch into standby and accept commands
+                # if the state_sequence is empty then put the winch into standby and accept new states
                 if not self.state_sequence:
                     self.do_transition(("STDBY", []))
 
@@ -320,6 +332,7 @@ class Winch(Context):
                 else:
                     self.do_transition(self.state_sequence[0])
 
+            # Delay the speed of the event loop
             sleep(self.main_loop_period)
 
 

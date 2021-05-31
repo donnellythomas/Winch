@@ -22,17 +22,14 @@ class State:
         return self.__name
 
     def get_name(self):
-        """
-        Get the name of the current state
-        :return: String
-        """
+        """Get the name of the current state"""
         return self.__name
 
     def on_entry_behavior(self, winch, *args):
         """
         Entry behavior of the state
-        :param winch: Context
-        :return:
+        Arguments:
+            winch -- context for the state
         """
         pass
 
@@ -41,10 +38,12 @@ class InitState(State):
     """
     Initialization state
     This is where configuration of winches parameters takes place, including setting pins,
-    setting up GPIO, checking state of sensors, and reading configuration files
+    setting up GPIO, checking state of sensors, and reading configuration and calibration files
     """
 
     def on_entry_behavior(self, winch, *args):
+
+        # Read configuration file and set all parameters
         with open(winch.config_file) as config:
             config = json.load(config)
         winch.UDP_IP = config["UDP_IP"]
@@ -58,21 +57,22 @@ class InitState(State):
         winch.illegal_speed_slow = config["illegal_speed_slow"]
         winch.calibration_tolerance = config["calibration_tolerance"]
         winch.maximum_depth = config["maximum_depth"]
+
         # UDP socket setup
         winch.sock = socket.socket(socket.AF_INET,  # Internet
                                    socket.SOCK_DGRAM)  # UDP
         winch.sock.bind((winch.UDP_IP, winch.UDP_PORT))
-        # Commands received via UDP are set to timeout after a given amount of time
-        # UDP commands are set to timeout to avoid from them going stale
+
+        # UDP needs to be nonblocking so we know when client disconnects
         winch.sock.setblocking(False)
 
-        # Set all callbacks
+        # Set all callbacks of controller
         winch.controller.set_slack_callback(winch.slack_callback)
         winch.controller.set_dock_callback(winch.dock_callback)
         winch.controller.set_line_callback(winch.line_callback)
         winch.controller.set_rotation_callback(winch.rotation_callback)
 
-        # Activate all sensors
+        # Enable all sensors
         winch.dock_sensor_enable = True
         winch.line_sensor_enable = True
         winch.slack_sensor_enable = True
@@ -91,6 +91,7 @@ class InitState(State):
 
         # Start the thread for receiving commands
         command_thread = threading.Thread(target=winch.receive_commands)
+        # Shuts down thread when main thread is shut down
         command_thread.daemon = True
         command_thread.start()
 
@@ -99,33 +100,10 @@ class InitState(State):
 
 
 class StdbyState(State):
-    """
-    Standby State
-    Currently this state serves two purposes which can (maybe should) be separated into two
-    The first purpose is to read the the current command from the client and transition into the
-    given state.
-    The second purpose is to monitor error timers and put the winch into an error state
-
-    This state is deviated from the original model. The original model has each state check the current command
-    and set the state accordingly, this required a lot of repetition and problems when small things were changed.
-    It also required errors to be checked for in multiple places as there were holding patterns within some states
-    such as downcast and upcast.
-
-    Instead, I chose to create the event loop so that no state is in a holding pattern, and used standby as a state
-    that is passed through every cycle (this is the part that could be pulled into its own state). This uses the
-    state_sequence to check what the current state is, and when a state is finished, it pops itself off the stack.
-    As Standby is passed through continuously, errors can be checked for frequently, and states that interrupt the
-    current state_sequence can be easily added to the stack and executed (Before being this, I had trouble putting
-    the winch into a stop or error state from anywhere in the cycle as it could not just be transitioned to when
-    called within the receive_command thread). Also, before this change I was running into recursion issues as I
-    would be transitioning into other states from within the middle of different state, this was more of an
-    implementation problem on my end though I believe.
-    """
+    """Get commands that receive commands provides, interprets and runs them"""
 
     def on_entry_behavior(self, winch, *args):
-        # Run continuously
-
-        # Set the command locally, commands were timing out withing the middle
+        # Set the command locally, commands were changing withing the middle
         # of this loop and raising exceptions
         command = winch.command
         if command is not None:
@@ -143,11 +121,9 @@ class StdbyState(State):
                     # If negative default to 1.1 meters
                     # TODO: Add to config
                     if soak_depth < 0:
-                        soak_depth = np.interp(winch.default_soak_depth, winch.cal_data["meters"],
-                                               winch.cal_data["rotations"])
+                        soak_depth = winch.meters_to_rotations(winch.default_soak_depth)
                     else:
-                        soak_depth = np.interp(soak_depth, winch.cal_data["meters"],
-                                               winch.cal_data["rotations"])
+                        soak_depth = winch.meters_to_rotations(soak_depth)
                     # If negative default to 60 seconds
                     if soak_time < 0:
                         soak_time = winch.default_soak_time
@@ -155,9 +131,8 @@ class StdbyState(State):
                         soak_time = soak_time
 
                     command = command.split()[0]
-                    # TODO: Create method for interpolation?
-                    target_depth = np.interp(meters, winch.cal_data["meters"],
-                                             winch.cal_data["rotations"])
+
+                    target_depth = winch.meters_to_rotations(meters)
                     winch.queue_command(command, target_depth, soak_depth, soak_time)
                 else:
                     # Add command to queue for execution on next cycle
@@ -167,12 +142,15 @@ class StdbyState(State):
                 traceback.print_exc()
                 print("Command not valid")
         else:
+            # Do not turn the motor off unless the command is none
+            # States will take control of the motor but if MANIN or MANOUT disconnect
+            # the motor needs to stop
+            # if it stops every time then the motor will be stopping and starting over and over
             winch.motor_off()
 
 
 class MonitorState(State):
     def on_entry_behavior(self, winch, *args):
-        pass
         # Error monitoring
         if winch.slack_timer.check_time() > winch.slack_timeout:
             winch.error("Winch has been slack for too long")
@@ -209,7 +187,6 @@ class ManualWinchOutState(State):
                 winch.down()
             else:
                 # Turns off motor when maximum depth is reached
-                # TODO: Could be moved to future error checking state, maybe error? Should be docked
                 winch.motor_off()
         winch.state_sequence.pop(0)
 
@@ -228,7 +205,6 @@ class ManualWinchInState(State):
                 winch.up()
             else:
                 # Turns off motor when depth is < 0
-                # TODO: Could be moved to future error checking state, maybe error? Should be docked
                 winch.motor_off()
         winch.state_sequence.pop(0)
 
@@ -243,8 +219,6 @@ class DownCastState(State):
             winch.motor_off()
             winch.state_sequence.pop(0)
             return
-
-        # TODO: Could be moved to future error/sensor checking state
         if not winch.controller.has_slack() and not winch.controller.is_out_of_line():
             winch.down()
         else:
@@ -279,7 +253,6 @@ class UpCastState(State):
     """ Upcast while depth is greater than 0 """
 
     def on_entry_behavior(self, winch, *args):
-        # print("Going up to 0...")
 
         # Dock reached
         if winch.depth <= 0:
@@ -299,6 +272,7 @@ class ErrorState(State):
     def on_entry_behavior(self, winch, *args):
         # Motors are turned off, error is flagged, state_sequence is cleared
         winch.motor_off()
+        # If the error has been removed release from error state
         if not winch.has_error:
             winch.rotation_timer.stop()
             winch.slack_timer.stop()
