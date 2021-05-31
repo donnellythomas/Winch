@@ -141,6 +141,7 @@ class StdbyState(State):
                 # Print exception and ignore commands
                 traceback.print_exc()
                 print("Command not valid")
+                winch.command = None
         else:
             # Do not turn the motor off unless the command is none
             # States will take control of the motor but if MANIN or MANOUT disconnect

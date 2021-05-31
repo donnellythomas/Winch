@@ -69,6 +69,9 @@ class WinchClient:
 
     def set_command(self, command):
         """Change the current command"""
+        if "CAST" in command:
+            if len(command.split()) != 4:
+                return
         self.current_command = command
 
 
@@ -125,6 +128,7 @@ class CastInput(tk.Frame):
         # Casting with Soak depth and time
         tk.Label(self, text="Cast To:").grid(row=0, column=0)
         cast_depth = tk.Entry(self)
+        cast_depth.insert(0, "10")
         cast_depth.grid(row=0, column=1)
         tk.Label(self, text="meters").grid(row=0, column=2)
         tk.Label(self, text="Soak Depth:").grid(row=1, column=0)
