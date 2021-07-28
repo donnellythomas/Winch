@@ -57,6 +57,7 @@ class InitState(State):
         winch.illegal_speed_slow = config["illegal_speed_slow"]
         winch.calibration_tolerance = config["calibration_tolerance"]
         winch.maximum_depth = config["maximum_depth"]
+        winch.cal_file = config["cal_file"]
 
         # UDP socket setup
         winch.sock = socket.socket(socket.AF_INET,  # Internet
@@ -78,7 +79,7 @@ class InitState(State):
         winch.slack_sensor_enable = True
 
         # Read configuration file for meter to rotation interpolation
-        with file(winch.cal_file) as f:
+        with open(winch.cal_file) as f:
             while True:
                 try:
                     rot, m = f.readline().split()
